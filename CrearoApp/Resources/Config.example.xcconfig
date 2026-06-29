@@ -1,0 +1,14 @@
+// Copy this file to `Config.xcconfig` (which is gitignored) and fill in your values.
+// project.yml points the CrearoApp target's build settings at Config.xcconfig.
+// Only the ANON key ships in the app (it is protected by Supabase Row-Level Security);
+// service-role keys and model API keys live ONLY in Edge Functions (see SETUP_GUIDE §6).
+
+// Your Supabase project URL, e.g. https://abcdwxyz.supabase.co
+API_BASE_URL = https://YOUR-PROJECT.supabase.co
+
+// Supabase anon/public key (RLS-protected).
+SUPABASE_ANON_KEY =
+
+// Set to YES once you've deployed the `interpret-idea` Edge Function.
+// Leave as NO to run fully offline with the deterministic StubAIInterpretationService.
+USE_REMOTE_AI = NO

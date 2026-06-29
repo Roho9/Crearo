@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleDisplayName</key>
+    <string>Crearo</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>UILaunchScreen</key>
+    <dict>
+        <key>UIColorName</key>
+        <string></string>
+    </dict>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+
+    <!-- Backend config injected from Config.xcconfig (see SETUP_GUIDE §5–6). -->
+    <key>API_BASE_URL</key>
+    <string>$(API_BASE_URL)</string>
+    <key>SUPABASE_ANON_KEY</key>
+    <string>$(SUPABASE_ANON_KEY)</string>
+    <key>USE_REMOTE_AI</key>
+    <string>$(USE_REMOTE_AI)</string>
+
+    <!-- Permission strings for the creative input methods (GDD §52). Requested only when used. -->
+    <key>NSCameraUsageDescription</key>
+    <string>Crearo turns photos of ordinary things into magical artifacts for your world.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Choose a photo to transform into an in-game relic, material, or creature.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Speak or hum your ideas to shape spells, names, and your companion's voice.</string>
+</dict>
+</plist>
