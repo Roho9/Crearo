@@ -49,6 +49,16 @@ final class AppState {
         user = try? await services.auth.restoreSession()
     }
 
+    /// Gather CreaCash from a world action (chop/fight). Brightens the world a touch (GDD §28).
+    func gather(creaCash n: Int) async {
+        guard var ws = worldState, n > 0 else { return }
+        ws.wallet.earn(.embers, n)
+        ws.companion.brightness = min(1, ws.companion.brightness + 0.04)
+        ws.home.lastMeaningfulActivity = Date()
+        worldState = ws
+        await persist()
+    }
+
     /// Wipe the saved world and return to the opening sequence (the "New Game" path).
     func resetGame() async {
         try? await services.persistence.deleteAll()

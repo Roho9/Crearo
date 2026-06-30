@@ -1,153 +1,384 @@
 import SwiftUI
 
-// The persistent world. A procedural "clay" companion standing in a grove, built entirely from
-// primitive meshes (no art assets). This is the whole app's backdrop; the opening sequence and
-// every panel draw on top of it.
+// The living world: a procedural clay world you move through. Built from primitive meshes only
+// (no art assets). Walkable clay companion, a Faceless follower, leafy trees you can chop, Greyed
+// enemies you can fight, grass, and a dynamic sky (day/night, sun, moon, clouds; rain/fog overlay).
 //
-// Core theme made literal: ONLY WHAT WAS MADE HAS COLOUR. The world's saturation is driven by a
-// `vitality` level (your creativity / companion brightness), so making things visibly relights the
-// grey — the feedback IS the art, never a number (see docs/WORLD_AND_STORY.md).
+// Theme made literal: only what was made has colour — world saturation rises with `vitality`.
+// See docs/WORLD_AND_STORY.md.
+
+enum WorldAction: Equatable {
+    case chop, fight
+    var label: String { self == .chop ? "Chop" : "Fight" }
+    var icon: String { self == .chop ? "leaf.fill" : "burst.fill" }
+}
+
+enum Weather: Equatable { case clear, cloudy, fog, rain }
 
 #if canImport(RealityKit) && canImport(UIKit)
 import RealityKit
 import UIKit
 import Combine
 
-/// Assembles the blob from primitives: rounded head, pill body, stubby limbs, matte clay shading.
-enum BlobCharacter {
-    static let defaultClay = UIColor(red: 0.82, green: 0.79, blue: 0.73, alpha: 1)
+// MARK: - Clay blob rig (limbs hang from shoulder/hip joints so they connect AND can swing)
 
-    static func make(clay: UIColor = defaultClay) -> Entity {
+struct BlobRig {
+    let root: Entity
+    let torso: Entity
+    let limbs: [Entity]          // [leftArm, rightArm, leftLeg, rightLeg]
+}
+
+enum BlobBuilder {
+    static func make(clay: UIColor, scale: Float = 1) -> BlobRig {
         let mat = SimpleMaterial(color: clay, roughness: 0.95, isMetallic: false)
         let root = Entity()
+        root.scale = SIMD3(repeating: scale)
 
-        func part(_ size: SIMD3<Float>, corner: Float, at p: SIMD3<Float>) -> ModelEntity {
-            let e = ModelEntity(mesh: .generateBox(size: size, cornerRadius: corner), materials: [mat])
-            e.position = p
-            return e
-        }
+        let torso = Entity()
+        let torsoMesh = ModelEntity(mesh: .generateBox(size: SIMD3(0.50, 0.74, 0.32), cornerRadius: 0.16), materials: [mat])
+        torsoMesh.position = SIMD3(0, 0.96, 0)
+        torso.addChild(torsoMesh)
+        let head = ModelEntity(mesh: .generateSphere(radius: 0.24), materials: [mat])
+        head.position = SIMD3(0, 1.55, 0)
+        torso.addChild(head)
+        root.addChild(torso)
 
-        root.addChild(part(SIMD3(0.46, 0.72, 0.30), corner: 0.15, at: SIMD3(0, 0.95, 0)))   // torso
-        let head = ModelEntity(mesh: .generateSphere(radius: 0.23), materials: [mat])
-        head.position = SIMD3(0, 1.47, 0)
-        root.addChild(head)
-        for side in [Float(-1), Float(1)] {
-            root.addChild(part(SIMD3(0.14, 0.52, 0.14), corner: 0.07, at: SIMD3(side * 0.33, 0.96, 0)))  // arm
-            root.addChild(part(SIMD3(0.17, 0.56, 0.17), corner: 0.08, at: SIMD3(side * 0.13, 0.30, 0)))  // leg
+        func limb(_ size: SIMD3<Float>, at joint: SIMD3<Float>) -> Entity {
+            let j = Entity()
+            j.position = joint
+            let m = ModelEntity(mesh: .generateBox(size: size, cornerRadius: min(size.x, size.z) / 2), materials: [mat])
+            m.position = SIMD3(0, -size.y / 2, 0)        // hang below the joint
+            j.addChild(m)
+            let cap = ModelEntity(mesh: .generateSphere(radius: size.x * 0.85), materials: [mat])  // shoulder/hip
+            j.addChild(cap)
+            root.addChild(j)
+            return j
         }
-        return root
+        let leftArm  = limb(SIMD3(0.15, 0.50, 0.15), at: SIMD3(-0.26, 1.20, 0))
+        let rightArm = limb(SIMD3(0.15, 0.50, 0.15), at: SIMD3( 0.26, 1.20, 0))
+        let leftLeg  = limb(SIMD3(0.17, 0.55, 0.17), at: SIMD3(-0.12, 0.62, 0))
+        let rightLeg = limb(SIMD3(0.17, 0.55, 0.17), at: SIMD3( 0.12, 0.62, 0))
+        return BlobRig(root: root, torso: torso, limbs: [leftArm, rightArm, leftLeg, rightLeg])
     }
 }
 
-/// Hosts the world: ground + grove + the clay companion, with a gentle idle bob and a
-/// grey-to-colour `vitality` that rises as the player makes things.
-final class BlobStageController {
+// MARK: - World controller
+
+@MainActor
+final class WorldController: ObservableObject {
     let arView: ARView
-    private let character: Entity
-    private var idle: Cancellable?
-    private let start = Date()
+    @Published var nearbyAction: WorldAction?
+    @Published var weather: Weather = .clear
+    var moveInput: SIMD2<Float> = .zero          // joystick, components in -1...1
+    var onGather: ((Int) -> Void)?
 
-    // Environment pieces whose colour is desaturated toward grey at low vitality.
-    private struct Painted { let entity: ModelEntity; let base: UIColor }
-    private var painted: [Painted] = []
-    private let skyAlive = UIColor(red: 0.10, green: 0.11, blue: 0.16, alpha: 1)
-    private let skyGrey  = UIColor(red: 0.33, green: 0.34, blue: 0.37, alpha: 1)
-    private static let grey = UIColor(red: 0.42, green: 0.43, blue: 0.46, alpha: 1)
+    private let scene = AnchorEntity(world: .zero)
+    private var player: BlobRig!
+    private var follower: BlobRig!
+    private var camera = PerspectiveCamera()
+    private var sun = ModelEntity()
+    private var moon = ModelEntity()
+    private var sunLight = DirectionalLight()
+    private var clouds: [Entity] = []
+    private var grass: [ModelEntity] = []
+    private var trees: [(entity: Entity, pos: SIMD3<Float>, chopped: Bool)] = []
+    private var enemy: Entity?
+    private var enemyPos = SIMD3<Float>(4, 0, -3)
+    private var painted: [(ModelEntity, UIColor)] = []   // desaturated toward grey at low vitality
+
     private var vitality: Float = 0.15
+    private var dayTime: Float = 0.30                     // 0...1, 0.25 ≈ noon
+    private var walkPhase: Float = 0
+    private var facing: Float = .pi                       // yaw, radians
+    private var weatherTimer: Float = 0
+    private var last = Date()
 
-    init(clay: UIColor = BlobCharacter.defaultClay) {
+    private let skyDay = UIColor(red: 0.40, green: 0.52, blue: 0.70, alpha: 1)
+    private let skyNight = UIColor(red: 0.05, green: 0.06, blue: 0.11, alpha: 1)
+    private static let grey = UIColor(red: 0.42, green: 0.43, blue: 0.46, alpha: 1)
+
+    init() {
         arView = ARView(frame: .zero, cameraMode: .nonAR, automaticallyConfigureSession: false)
-        arView.backgroundColor = skyGrey
-        arView.environment.background = .color(skyGrey)
-        character = BlobCharacter.make(clay: clay)
-        buildScene()
+        arView.backgroundColor = skyNight
+        build()
+        arView.scene.addAnchor(scene)
+        sceneSub = arView.scene.subscribe(to: SceneEvents.Update.self) { [weak self] e in
+            self?.tick(Float(e.deltaTime))
+        }
         applyVitality()
     }
+    private var sceneSub: Cancellable?
 
-    private func buildScene() {
-        let world = AnchorEntity(world: .zero)
+    // MARK: build
 
-        // Cozy third-person framing on the companion (full figure, slight downward angle).
-        let camera = PerspectiveCamera()
-        let camPos = SIMD3<Float>(0, 1.2, 3.4)
-        let camAnchor = AnchorEntity(world: camPos)
-        camAnchor.addChild(camera)
-        camera.look(at: SIMD3(0, 0.85, 0), from: camPos, relativeTo: nil)
-        world.addChild(camAnchor)
+    private func build() {
+        let cameraAnchor = Entity()
+        cameraAnchor.addChild(camera)
+        scene.addChild(cameraAnchor)
 
-        let key = DirectionalLight()
-        key.light.intensity = 2400
-        key.light.color = UIColor(red: 1.0, green: 0.86, blue: 0.62, alpha: 1)
-        let keyAnchor = AnchorEntity(world: SIMD3(2.5, 4, 3))
-        keyAnchor.addChild(key)
-        key.look(at: .zero, from: SIMD3(2.5, 4, 3), relativeTo: nil)
-        world.addChild(keyAnchor)
+        sunLight.light.intensity = 2400
+        scene.addChild(sunLight)
 
-        // Mossy ground the companion stands on.
+        // Sun & moon as glowing (unlit) spheres.
+        sun = ModelEntity(mesh: .generateSphere(radius: 0.9), materials: [UnlitMaterial(color: UIColor(red: 1, green: 0.92, blue: 0.6, alpha: 1))])
+        moon = ModelEntity(mesh: .generateSphere(radius: 0.6), materials: [UnlitMaterial(color: UIColor(red: 0.85, green: 0.88, blue: 0.95, alpha: 1))])
+        scene.addChild(sun); scene.addChild(moon)
+
+        // Ground.
         let groundBase = UIColor(red: 0.18, green: 0.30, blue: 0.20, alpha: 1)
-        let ground = ModelEntity(mesh: .generatePlane(width: 40, depth: 40),
-                                 materials: [SimpleMaterial(color: groundBase, isMetallic: false)])
-        painted.append(Painted(entity: ground, base: groundBase))
-        world.addChild(ground)
+        let ground = ModelEntity(mesh: .generatePlane(width: 60, depth: 60), materials: [SimpleMaterial(color: groundBase, isMetallic: false)])
+        painted.append((ground, groundBase))
+        scene.addChild(ground)
 
-        // Soft trees BEHIND the companion so nothing occludes it and it stays the focal point.
-        let treeSpots: [SIMD3<Float>] = [
-            SIMD3(-3.4, 0, -2.8), SIMD3(3.2, 0, -2.4), SIMD3(-1.7, 0, -4.4),
-            SIMD3(1.9, 0, -4.1), SIMD3(-4.3, 0, -1.6), SIMD3(4.4, 0, -1.8),
-            SIMD3(0.2, 0, -5.4), SIMD3(2.8, 0, -5.7)
-        ]
-        for spot in treeSpots { world.addChild(makeTree(at: spot)) }
-
-        world.addChild(character)
-        arView.scene.addAnchor(world)
-
-        idle = arView.scene.subscribe(to: SceneEvents.Update.self) { [weak self] _ in
-            guard let self else { return }
-            let t = Float(Date().timeIntervalSince(self.start))
-            self.character.position.y = sin(t * 1.5) * 0.025
-            self.character.orientation = simd_quatf(angle: sin(t * 0.6) * 0.14, axis: SIMD3(0, 1, 0))
+        // Grass blades scattered in a patch around the player.
+        let bladeBase = UIColor(red: 0.30, green: 0.52, blue: 0.30, alpha: 1)
+        for _ in 0..<140 {
+            let blade = ModelEntity(mesh: .generateBox(size: SIMD3(0.04, Float.random(in: 0.14...0.26), 0.012)),
+                                    materials: [SimpleMaterial(color: bladeBase, isMetallic: false)])
+            let a = Float.random(in: 0..<2 * .pi), r = Float.random(in: 0.6...7)
+            blade.position = SIMD3(cos(a) * r, 0.1, sin(a) * r)
+            blade.orientation = simd_quatf(angle: Float.random(in: 0..<2 * .pi), axis: SIMD3(0, 1, 0))
+            painted.append((blade, bladeBase))
+            grass.append(blade)
+            scene.addChild(blade)
         }
+
+        // Leafy trees (clustered canopy) you can chop.
+        let spots: [SIMD3<Float>] = [
+            SIMD3(-3.6, 0, -2.8), SIMD3(3.4, 0, -2.2), SIMD3(-1.8, 0, -5.0),
+            SIMD3(2.2, 0, -4.6), SIMD3(-4.6, 0, -0.8), SIMD3(4.8, 0, -1.2), SIMD3(0.4, 0, -6.2)
+        ]
+        for s in spots {
+            let t = makeTree()
+            t.position = s
+            trees.append((t, s, false))
+            scene.addChild(t)
+        }
+
+        // The clay companion (player).
+        player = BlobBuilder.make(clay: BlobCharacterPalette.clay)
+        scene.addChild(player.root)
+
+        // A Faceless follower — smaller, paler.
+        follower = BlobBuilder.make(clay: UIColor(red: 0.66, green: 0.66, blue: 0.64, alpha: 1), scale: 0.55)
+        follower.root.position = SIMD3(0.8, 0, 1.0)
+        scene.addChild(follower.root)
+
+        // A Greyed enemy (a Mimic) to fight.
+        enemy = makeEnemy()
+        enemy?.position = enemyPos
+        if let enemy { scene.addChild(enemy) }
     }
 
-    private func makeTree(at p: SIMD3<Float>) -> Entity {
+    private func makeTree() -> Entity {
         let barkBase = UIColor(red: 0.36, green: 0.26, blue: 0.20, alpha: 1)
-        let leafBase = UIColor(red: 0.26, green: 0.48, blue: 0.32, alpha: 1)
-        let trunk = ModelEntity(mesh: .generateBox(size: SIMD3(0.18, 1.2, 0.18), cornerRadius: 0.05),
-                                materials: [SimpleMaterial(color: barkBase, isMetallic: false)])
-        trunk.position = SIMD3(0, 0.6, 0)
-        let canopy = ModelEntity(mesh: .generateSphere(radius: 0.62),
-                                 materials: [SimpleMaterial(color: leafBase, isMetallic: false)])
-        canopy.position = SIMD3(0, 1.5, 0)
-        painted.append(Painted(entity: trunk, base: barkBase))
-        painted.append(Painted(entity: canopy, base: leafBase))
+        let leafBase = UIColor(red: 0.24, green: 0.46, blue: 0.30, alpha: 1)
         let tree = Entity()
-        tree.addChild(trunk); tree.addChild(canopy)
-        tree.position = p
+        let trunk = ModelEntity(mesh: .generateBox(size: SIMD3(0.22, 1.3, 0.22), cornerRadius: 0.06), materials: [SimpleMaterial(color: barkBase, isMetallic: false)])
+        trunk.position = SIMD3(0, 0.65, 0)
+        painted.append((trunk, barkBase))
+        tree.addChild(trunk)
+        // Canopy: a cluster of leaf clumps so it reads as foliage, not one ball.
+        let clumps: [SIMD3<Float>] = [SIMD3(0, 1.55, 0), SIMD3(-0.32, 1.35, 0.1), SIMD3(0.34, 1.38, -0.08), SIMD3(0.05, 1.42, 0.34), SIMD3(-0.1, 1.42, -0.32)]
+        for (i, c) in clumps.enumerated() {
+            let leaf = ModelEntity(mesh: .generateSphere(radius: i == 0 ? 0.5 : 0.36), materials: [SimpleMaterial(color: leafBase, isMetallic: false)])
+            leaf.position = c
+            painted.append((leaf, leafBase))
+            tree.addChild(leaf)
+        }
         return tree
     }
 
-    /// 0 = fully grey (the Greying), 1 = full colour. Drives the world's saturation.
+    private func makeEnemy() -> Entity {
+        let rig = BlobBuilder.make(clay: UIColor(red: 0.34, green: 0.34, blue: 0.37, alpha: 1), scale: 0.9)
+        // a single dull eye so it reads as a creature
+        let eye = ModelEntity(mesh: .generateSphere(radius: 0.07), materials: [UnlitMaterial(color: UIColor(red: 0.9, green: 0.85, blue: 0.6, alpha: 1))])
+        eye.position = SIMD3(0, 1.5, 0.22)
+        rig.root.addChild(eye)
+        return rig.root
+    }
+
+    // MARK: per-frame update
+
+    private func tick(_ dtRaw: Float) {
+        let dt = min(dtRaw, 1.0 / 20)
+        let t = Float(Date().timeIntervalSince(last))
+
+        // Movement.
+        let move = SIMD3<Float>(moveInput.x, 0, moveInput.y)
+        let speed = simd_length(move)
+        if speed > 0.05 {
+            let dir = move / speed
+            facing = atan2(dir.x, dir.z)
+            player.root.position += dir * min(speed, 1) * 2.2 * dt
+            walkPhase += dt * 9
+        } else {
+            walkPhase += dt * 2
+        }
+        player.root.orientation = simd_quatf(angle: facing, axis: SIMD3(0, 1, 0))
+
+        // Walk / idle animation: swing limbs from their joints, bob the torso.
+        let moving = speed > 0.05
+        let amp: Float = moving ? 0.6 : 0.04
+        let s = sin(walkPhase)
+        player.limbs[0].orientation = simd_quatf(angle:  s * amp, axis: SIMD3(1, 0, 0)) // L arm
+        player.limbs[1].orientation = simd_quatf(angle: -s * amp, axis: SIMD3(1, 0, 0)) // R arm
+        player.limbs[2].orientation = simd_quatf(angle: -s * amp, axis: SIMD3(1, 0, 0)) // L leg
+        player.limbs[3].orientation = simd_quatf(angle:  s * amp, axis: SIMD3(1, 0, 0)) // R leg
+        player.torso.position.y = moving ? abs(sin(walkPhase)) * 0.04 : sin(t * 1.4) * 0.02
+
+        // Camera follows from a fixed angle behind.
+        let target = player.root.position + SIMD3(0, 0.85, 0)
+        let camPos = player.root.position + SIMD3(0, 1.8, 3.6)
+        camera.position = camPos
+        camera.look(at: target, from: camPos, relativeTo: nil)
+
+        // Faceless follower trails the player.
+        let fTarget = player.root.position + SIMD3(sin(facing + 0.6) * 1.0, 0, cos(facing + 0.6) * 1.0)
+        follower.root.position += (fTarget - follower.root.position) * min(1, dt * 2.2)
+        let fd = player.root.position - follower.root.position
+        follower.root.orientation = simd_quatf(angle: atan2(fd.x, fd.z), axis: SIMD3(0, 1, 0))
+        follower.torso.position.y = sin(t * 1.8) * 0.02
+
+        // Enemy drifts slowly toward the player when far, idles when near.
+        if let enemy {
+            let toP = player.root.position - enemy.position
+            let d = simd_length(toP)
+            if d > 1.4 { enemy.position += (toP / max(d, 0.001)) * 0.6 * dt }
+            enemy.orientation = simd_quatf(angle: atan2(toP.x, toP.z), axis: SIMD3(0, 1, 0))
+            enemy.position.y = sin(t * 2 + 1) * 0.03
+        }
+
+        updateSky(dt)
+        updateClouds(dt)
+        swayGrass(t)
+        updateNearby()
+    }
+
+    private func updateNearby() {
+        let p = player.root.position
+        var action: WorldAction?
+        if let enemy, simd_length(enemy.position - p) < 1.7 { action = .fight }
+        else if trees.contains(where: { !$0.chopped && simd_length($0.pos - p) < 1.7 }) { action = .chop }
+        if action != nearbyAction { nearbyAction = action }
+    }
+
+    // MARK: sky / weather
+
+    private func updateSky(_ dt: Float) {
+        dayTime += dt / 150                          // ~2.5 min day
+        if dayTime > 1 { dayTime -= 1 }
+        let ang = dayTime * 2 * .pi
+        let elev = sin(ang)                          // >0 day, <0 night
+        let day = max(0, elev)
+
+        sun.position = SIMD3(cos(ang) * 10, elev * 8, -14)
+        moon.position = SIMD3(-cos(ang) * 10, -elev * 8, -14)
+        sun.isEnabled = elev > -0.1
+        moon.isEnabled = elev < 0.1
+
+        sunLight.light.intensity = (0.12 + day * 0.9) * 2600
+        sunLight.look(at: .zero, from: sun.position, relativeTo: nil)
+        let warm = UIColor(red: 1, green: 0.74, blue: 0.45, alpha: 1)
+        sunLight.light.color = Self.blend(warm, .white, t: CGFloat(day))
+
+        var sky = Self.blend(skyNight, skyDay, t: CGFloat(day))
+        // dusk/dawn warmth near the horizon
+        if elev > -0.25 && elev < 0.35 { sky = Self.blend(sky, UIColor(red: 0.65, green: 0.4, blue: 0.3, alpha: 1), t: 0.35) }
+        // fog washes the sky pale; vitality greys it
+        if weather == .fog { sky = Self.blend(sky, UIColor(red: 0.7, green: 0.72, blue: 0.74, alpha: 1), t: 0.5) }
+        sky = Self.blend(sky, Self.grey, t: CGFloat((1 - vitality) * 0.5))
+        arView.environment.background = .color(sky)
+        arView.backgroundColor = sky
+
+        // Cycle weather occasionally.
+        weatherTimer += dt
+        if weatherTimer > 22 {
+            weatherTimer = 0
+            weather = [.clear, .clear, .cloudy, .fog, .rain].randomElement() ?? .clear
+        }
+    }
+
+    private func updateClouds(_ dt: Float) {
+        if clouds.isEmpty && weather != .clear { spawnClouds() }
+        for c in clouds {
+            c.position.x += dt * 0.4
+            if c.position.x > 16 { c.position.x = -16 }
+            c.isEnabled = weather != .clear
+        }
+        if weather == .clear { for c in clouds { c.isEnabled = false } }
+    }
+
+    private func spawnClouds() {
+        for _ in 0..<5 {
+            let cloud = Entity()
+            for _ in 0..<4 {
+                let puff = ModelEntity(mesh: .generateSphere(radius: Float.random(in: 0.5...0.9)),
+                                       materials: [UnlitMaterial(color: UIColor(white: 0.85, alpha: 1))])
+                puff.position = SIMD3(Float.random(in: -1...1), Float.random(in: -0.2...0.2), Float.random(in: -0.4...0.4))
+                cloud.addChild(puff)
+            }
+            cloud.position = SIMD3(Float.random(in: -16...16), Float.random(in: 6...8), Float.random(in: -16 ... -8))
+            clouds.append(cloud)
+            scene.addChild(cloud)
+        }
+    }
+
+    private func swayGrass(_ t: Float) {
+        for (i, blade) in grass.enumerated() {
+            let sway = sin(t * 1.6 + Float(i)) * 0.08 + (weather == .rain ? 0.12 : 0)
+            blade.orientation = simd_quatf(angle: sway, axis: SIMD3(0, 0, 1))
+        }
+    }
+
+    // MARK: actions
+
+    func interact() {
+        guard let action = nearbyAction else { return }
+        switch action {
+        case .chop:
+            let p = player.root.position
+            if let idx = trees.firstIndex(where: { !$0.chopped && simd_length($0.pos - p) < 1.7 }) {
+                trees[idx].chopped = true
+                let tree = trees[idx].entity
+                // topple + sink
+                var fall = Transform(matrix: tree.transformMatrix(relativeTo: scene))
+                fall.rotation = simd_quatf(angle: .pi / 2, axis: SIMD3(1, 0, 0)) * fall.rotation
+                fall.translation.y -= 0.3
+                tree.move(to: fall, relativeTo: scene, duration: 0.6, timingFunction: .easeOut)
+                onGather?(Int.random(in: 2...4))
+            }
+        case .fight:
+            guard let enemy else { return }
+            // recoil + dissolve, then respawn elsewhere
+            var t = Transform(matrix: enemy.transformMatrix(relativeTo: scene))
+            t.scale = SIMD3(repeating: 0.01)
+            enemy.move(to: t, relativeTo: scene, duration: 0.4, timingFunction: .easeIn)
+            onGather?(Int.random(in: 3...6))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self else { return }
+                let a = Float.random(in: 0..<2 * .pi)
+                enemy.position = SIMD3(cos(a) * 6, 0, sin(a) * 6)
+                enemy.transform.scale = SIMD3(repeating: 0.9)
+            }
+            nearbyAction = nil
+        }
+    }
+
+    // MARK: vitality
+
     func setVitality(_ level: Float) {
-        let clamped = max(0, min(1, level))
-        guard abs(clamped - vitality) > 0.001 else { return }
-        vitality = clamped
+        let c = max(0, min(1, level))
+        guard abs(c - vitality) > 0.001 else { return }
+        vitality = c
         applyVitality()
     }
 
     private func applyVitality() {
-        let t = CGFloat(1 - vitality)   // how much grey
-        for p in painted {
-            let c = Self.blend(p.base, Self.grey, t: t)
-            p.entity.model?.materials = [SimpleMaterial(color: c, isMetallic: false)]
+        let t = CGFloat(1 - vitality)
+        for (e, base) in painted {
+            e.model?.materials = [SimpleMaterial(color: Self.blend(base, Self.grey, t: t), isMetallic: false)]
         }
-        let sky = Self.blend(skyAlive, skyGrey, t: t)
-        arView.environment.background = .color(sky)
-        arView.backgroundColor = sky
-    }
-
-    func setClay(_ color: UIColor) {
-        let mat = SimpleMaterial(color: color, roughness: 0.95, isMetallic: false)
-        character.children.compactMap { $0 as? ModelEntity }.forEach { $0.model?.materials = [mat] }
     }
 
     private static func blend(_ a: UIColor, _ b: UIColor, t: CGFloat) -> UIColor {
@@ -155,36 +386,35 @@ final class BlobStageController {
         var br: CGFloat = 0, bg: CGFloat = 0, bb: CGFloat = 0, ba: CGFloat = 0
         a.getRed(&ar, green: &ag, blue: &ab, alpha: &aa)
         b.getRed(&br, green: &bg, blue: &bb, alpha: &ba)
-        return UIColor(red: ar + (br - ar) * t, green: ag + (bg - ag) * t, blue: ab + (bb - ab) * t, alpha: 1)
+        let u = max(0, min(1, t))
+        return UIColor(red: ar + (br - ar) * u, green: ag + (bg - ag) * u, blue: ab + (bb - ab) * u, alpha: 1)
     }
 }
 
-/// SwiftUI host for the world. `vitality` (0…1) relights the grey as the player creates.
-struct BlobStage: UIViewRepresentable {
-    var vitality: Float = 0.15
+enum BlobCharacterPalette {
+    static let clay = UIColor(red: 0.82, green: 0.79, blue: 0.73, alpha: 1)
+}
 
-    func makeUIView(context: Context) -> ARView {
-        let controller = BlobStageController()
-        controller.setVitality(vitality)
-        context.coordinator.controller = controller
-        return controller.arView
-    }
-
-    func updateUIView(_ uiView: ARView, context: Context) {
-        context.coordinator.controller?.setVitality(vitality)
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-    final class Coordinator { var controller: BlobStageController? }
+/// SwiftUI host that renders the shared world controller's ARView.
+struct WorldStage: UIViewRepresentable {
+    let controller: WorldController
+    func makeUIView(context: Context) -> ARView { controller.arView }
+    func updateUIView(_ uiView: ARView, context: Context) {}
 }
 
 #else
-/// Fallback for platforms without RealityKit (e.g. Linux preview builds).
-struct BlobStage: View {
-    var vitality: Float = 0.15
+final class WorldController: ObservableObject {
+    @Published var nearbyAction: WorldAction?
+    @Published var weather: Weather = .clear
+    var moveInput: SIMD2<Float> = .zero
+    var onGather: ((Int) -> Void)?
+    func setVitality(_ level: Float) {}
+    func interact() {}
+}
+struct WorldStage: View {
+    let controller: WorldController
     var body: some View {
-        LinearGradient(colors: [Color(red: 0.10, green: 0.11, blue: 0.16),
-                                Color(red: 0.05, green: 0.06, blue: 0.09)],
+        LinearGradient(colors: [Color(red: 0.10, green: 0.11, blue: 0.16), Color(red: 0.05, green: 0.06, blue: 0.09)],
                        startPoint: .top, endPoint: .bottom)
     }
 }
