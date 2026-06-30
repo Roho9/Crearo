@@ -75,6 +75,10 @@ final class WorldController: ObservableObject {
     private let scene = AnchorEntity(world: .zero)
     private var player: BlobRig!
     private var follower: BlobRig!
+    private var characterModel: Entity?       // imported USDZ, if any
+    private var characterNormalizer: Entity?  // wrapper we scale/offset once the model is in-scene
+    private var needsCharacterNormalize = false
+    private var characterYawOffset: Float = 0 // rotate the model if it faces the wrong way
     private var camera = PerspectiveCamera()
     private var sun = ModelEntity()
     private var moon = ModelEntity()
@@ -157,8 +161,21 @@ final class WorldController: ObservableObject {
             scene.addChild(t)
         }
 
-        // The clay companion (player).
-        player = BlobBuilder.make(clay: BlobCharacterPalette.clay)
+        // The player: the imported clay character if present, else the procedural blob. The model
+        // keeps its authored transform; a normalizer wrapper is scaled to world size on the first
+        // frame (once it's anchored and its world bounds are valid — see tick()).
+        if let model = try? Entity.load(named: "blob_character") {
+            let normalizer = Entity()
+            normalizer.addChild(model)
+            let torso = Entity(); torso.addChild(normalizer)
+            let root = Entity(); root.addChild(torso)
+            player = BlobRig(root: root, torso: torso, limbs: [])
+            characterModel = model
+            characterNormalizer = normalizer
+            needsCharacterNormalize = true
+        } else {
+            player = BlobBuilder.make(clay: BlobCharacterPalette.clay)
+        }
         scene.addChild(player.root)
 
         // A Faceless follower — smaller, paler.
@@ -206,6 +223,8 @@ final class WorldController: ObservableObject {
         let dt = min(dtRaw, 1.0 / 20)
         let t = Float(Date().timeIntervalSince(last))
 
+        normalizeCharacterIfNeeded()
+
         // Movement.
         let move = SIMD3<Float>(moveInput.x, 0, moveInput.y)
         let speed = simd_length(move)
@@ -223,16 +242,22 @@ final class WorldController: ObservableObject {
         let moving = speed > 0.05
         let amp: Float = moving ? 0.6 : 0.04
         let s = sin(walkPhase)
-        player.limbs[0].orientation = simd_quatf(angle:  s * amp, axis: SIMD3(1, 0, 0)) // L arm
-        player.limbs[1].orientation = simd_quatf(angle: -s * amp, axis: SIMD3(1, 0, 0)) // R arm
-        player.limbs[2].orientation = simd_quatf(angle: -s * amp, axis: SIMD3(1, 0, 0)) // L leg
-        player.limbs[3].orientation = simd_quatf(angle:  s * amp, axis: SIMD3(1, 0, 0)) // R leg
+        if player.limbs.count >= 4 {                              // procedural blob: swing the limbs
+            player.limbs[0].orientation = simd_quatf(angle:  s * amp, axis: SIMD3(1, 0, 0)) // L arm
+            player.limbs[1].orientation = simd_quatf(angle: -s * amp, axis: SIMD3(1, 0, 0)) // R arm
+            player.limbs[2].orientation = simd_quatf(angle: -s * amp, axis: SIMD3(1, 0, 0)) // L leg
+            player.limbs[3].orientation = simd_quatf(angle:  s * amp, axis: SIMD3(1, 0, 0)) // R leg
+        }
         player.torso.position.y = moving ? abs(sin(walkPhase)) * 0.04 : sin(t * 1.4) * 0.02
 
-        // Chop/fight: a quick right-arm swing impulse over the walk pose.
+        // Chop/fight: a quick right-arm swing impulse (procedural blob) or a whole-body lean (USDZ).
         if swing > 0 {
             swing = max(0, swing - dt * 3)
-            player.limbs[1].orientation = simd_quatf(angle: -1.5 * swing, axis: SIMD3(1, 0, 0))
+            if player.limbs.count >= 2 {
+                player.limbs[1].orientation = simd_quatf(angle: -1.5 * swing, axis: SIMD3(1, 0, 0))
+            } else {
+                player.torso.orientation = simd_quatf(angle: -0.4 * swing, axis: SIMD3(1, 0, 0))
+            }
         }
 
         // Camera follows from a fixed angle behind.
@@ -271,6 +296,21 @@ final class WorldController: ObservableObject {
         updateClouds(dt)
         swayGrass(t)
         updateNearby()
+    }
+
+    /// Once the imported model is anchored, scale its wrapper so the character is ~1.7 units tall,
+    /// with feet on the ground and centered. Measuring in the player's space respects the asset's
+    /// own authored scale (the local-space measurement at load time did not).
+    private func normalizeCharacterIfNeeded() {
+        guard needsCharacterNormalize, let model = characterModel, let norm = characterNormalizer else { return }
+        let b = model.visualBounds(relativeTo: player.root)
+        guard b.extents.y > 0.0001 else { return }   // bounds not ready yet; try next frame
+        let s = 1.7 / b.extents.y
+        norm.scale = SIMD3(repeating: s)
+        norm.orientation = simd_quatf(angle: characterYawOffset, axis: SIMD3(0, 1, 0))
+        let b2 = model.visualBounds(relativeTo: player.root)   // after scaling
+        norm.position = SIMD3(-b2.center.x, -b2.min.y, -b2.center.z)
+        needsCharacterNormalize = false
     }
 
     private func updateNearby() {
