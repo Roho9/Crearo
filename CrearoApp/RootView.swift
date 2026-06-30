@@ -6,6 +6,7 @@ import CrearoCore
 struct RootView: View {
     @Environment(AppState.self) private var app
     @StateObject private var world = WorldController()
+    @State private var forgeOpen = false
 
     /// Grey (0) before any making; warms toward full colour (1) with the companion's brightness,
     /// dimmed by the Greying. Starts low so the player *sees* the world relight as they create.
@@ -23,8 +24,9 @@ struct RootView: View {
                 if app.worldState == nil {
                     OpeningOverlay()
                 } else {
-                    WorldHUD()
-                    WorldControls(controller: world)
+                    WorldHUD(forgeOpen: $forgeOpen)
+                    if !forgeOpen { WorldControls(controller: world) }   // controls hide when a panel is open
+                    if forgeOpen { ForgePanel(isPresented: $forgeOpen) }
                 }
             }
         }

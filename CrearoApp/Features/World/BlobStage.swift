@@ -89,6 +89,8 @@ final class WorldController: ObservableObject {
     private var vitality: Float = 0.15
     private var dayTime: Float = 0.30                     // 0...1, 0.25 ≈ noon
     private var walkPhase: Float = 0
+    private var followerPhase: Float = 0
+    private var swing: Float = 0                          // chop/fight arm-swing impulse
     private var facing: Float = .pi                       // yaw, radians
     private var weatherTimer: Float = 0
     private var last = Date()
@@ -227,18 +229,34 @@ final class WorldController: ObservableObject {
         player.limbs[3].orientation = simd_quatf(angle:  s * amp, axis: SIMD3(1, 0, 0)) // R leg
         player.torso.position.y = moving ? abs(sin(walkPhase)) * 0.04 : sin(t * 1.4) * 0.02
 
+        // Chop/fight: a quick right-arm swing impulse over the walk pose.
+        if swing > 0 {
+            swing = max(0, swing - dt * 3)
+            player.limbs[1].orientation = simd_quatf(angle: -1.5 * swing, axis: SIMD3(1, 0, 0))
+        }
+
         // Camera follows from a fixed angle behind.
         let target = player.root.position + SIMD3(0, 0.85, 0)
         let camPos = player.root.position + SIMD3(0, 1.8, 3.6)
         camera.position = camPos
         camera.look(at: target, from: camPos, relativeTo: nil)
 
-        // Faceless follower trails the player.
-        let fTarget = player.root.position + SIMD3(sin(facing + 0.6) * 1.0, 0, cos(facing + 0.6) * 1.0)
-        follower.root.position += (fTarget - follower.root.position) * min(1, dt * 2.2)
+        // Faceless follower trails the player, walking when it has ground to cover.
+        let fTarget = player.root.position + SIMD3(sin(facing + 2.4) * 1.1, 0, cos(facing + 2.4) * 1.1)
+        let fOld = follower.root.position
+        follower.root.position += (fTarget - fOld) * min(1, dt * 2.4)
+        let fSpeed = simd_length(follower.root.position - fOld) / max(dt, 0.0001)
+        let fMoving = fSpeed > 0.25
         let fd = player.root.position - follower.root.position
-        follower.root.orientation = simd_quatf(angle: atan2(fd.x, fd.z), axis: SIMD3(0, 1, 0))
-        follower.torso.position.y = sin(t * 1.8) * 0.02
+        if simd_length(fd) > 0.2 { follower.root.orientation = simd_quatf(angle: atan2(fd.x, fd.z), axis: SIMD3(0, 1, 0)) }
+        followerPhase += dt * (fMoving ? 9 : 2)
+        let fAmp: Float = fMoving ? 0.5 : 0.03
+        let fs = sin(followerPhase)
+        follower.limbs[0].orientation = simd_quatf(angle:  fs * fAmp, axis: SIMD3(1, 0, 0))
+        follower.limbs[1].orientation = simd_quatf(angle: -fs * fAmp, axis: SIMD3(1, 0, 0))
+        follower.limbs[2].orientation = simd_quatf(angle: -fs * fAmp, axis: SIMD3(1, 0, 0))
+        follower.limbs[3].orientation = simd_quatf(angle:  fs * fAmp, axis: SIMD3(1, 0, 0))
+        follower.torso.position.y = fMoving ? abs(sin(followerPhase)) * 0.03 : sin(t * 1.8) * 0.02
 
         // Enemy drifts slowly toward the player when far, idles when near.
         if let enemy {
@@ -258,15 +276,15 @@ final class WorldController: ObservableObject {
     private func updateNearby() {
         let p = player.root.position
         var action: WorldAction?
-        if let enemy, simd_length(enemy.position - p) < 1.7 { action = .fight }
-        else if trees.contains(where: { !$0.chopped && simd_length($0.pos - p) < 1.7 }) { action = .chop }
+        if let enemy, enemy.isEnabled, simd_length(enemy.position - p) < 2.2 { action = .fight }
+        else if trees.contains(where: { !$0.chopped && simd_length($0.pos - p) < 2.2 }) { action = .chop }
         if action != nearbyAction { nearbyAction = action }
     }
 
     // MARK: sky / weather
 
     private func updateSky(_ dt: Float) {
-        dayTime += dt / 150                          // ~2.5 min day
+        dayTime += dt / 1800                         // 30-min full cycle: ~15 min day + ~15 min night
         if dayTime > 1 { dayTime -= 1 }
         let ang = dayTime * 2 * .pi
         let elev = sin(ang)                          // >0 day, <0 night
@@ -274,11 +292,12 @@ final class WorldController: ObservableObject {
 
         sun.position = SIMD3(cos(ang) * 10, elev * 8, -14)
         moon.position = SIMD3(-cos(ang) * 10, -elev * 8, -14)
-        sun.isEnabled = elev > -0.1
-        moon.isEnabled = elev < 0.1
+        // Keep each body strictly above the horizon so it never shows through the ground.
+        sun.isEnabled = elev > 0.02
+        moon.isEnabled = elev < -0.02
 
         sunLight.light.intensity = (0.12 + day * 0.9) * 2600
-        sunLight.look(at: .zero, from: sun.position, relativeTo: nil)
+        sunLight.look(at: .zero, from: day > 0 ? sun.position : moon.position, relativeTo: nil)
         let warm = UIColor(red: 1, green: 0.74, blue: 0.45, alpha: 1)
         sunLight.light.color = Self.blend(warm, .white, t: CGFloat(day))
 
@@ -337,8 +356,9 @@ final class WorldController: ObservableObject {
         guard let action = nearbyAction else { return }
         switch action {
         case .chop:
+            swing = 1
             let p = player.root.position
-            if let idx = trees.firstIndex(where: { !$0.chopped && simd_length($0.pos - p) < 1.7 }) {
+            if let idx = trees.firstIndex(where: { !$0.chopped && simd_length($0.pos - p) < 2.2 }) {
                 trees[idx].chopped = true
                 let tree = trees[idx].entity
                 // topple + sink
@@ -349,6 +369,7 @@ final class WorldController: ObservableObject {
                 onGather?(Int.random(in: 2...4))
             }
         case .fight:
+            swing = 1
             guard let enemy else { return }
             // recoil + dissolve, then respawn elsewhere
             var t = Transform(matrix: enemy.transformMatrix(relativeTo: scene))

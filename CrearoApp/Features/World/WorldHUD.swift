@@ -5,7 +5,7 @@ import CrearoCore
 // No tabs — everything is the world; panels rise over it.
 struct WorldHUD: View {
     @Environment(AppState.self) private var app
-    @State private var showForge = false
+    @Binding var forgeOpen: Bool
     @State private var confirmingReset = false
 
     var body: some View {
@@ -23,7 +23,7 @@ struct WorldHUD: View {
                     } label: {
                         hudCircle("ellipsis", filled: false)
                     }
-                    Button { showForge = true } label: {
+                    Button { forgeOpen = true } label: {
                         hudCircle("hammer.fill", filled: true)
                     }
                 }
@@ -54,7 +54,6 @@ struct WorldHUD: View {
             }
         }
         .animation(.easeInOut, value: app.toast)
-        .overlay { if showForge { ForgePanel(isPresented: $showForge) } }
         .confirmationDialog("Begin again?", isPresented: $confirmingReset, titleVisibility: .visible) {
             Button("Start a new game", role: .destructive) { Task { await app.resetGame() } }
             Button("Keep playing", role: .cancel) {}
