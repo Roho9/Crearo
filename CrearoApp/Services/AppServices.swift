@@ -18,9 +18,18 @@ struct AppServices {
             auth: InMemoryAuthService(),                 // TODO: SupabaseAuthService (Sign in with Apple)
             persistence: FilePersistenceStore(),         // real local JSON store (add CloudKit sync later)
             api: api,
-            ai: AppConfig.useRemoteAI ? RemoteAIInterpretationService(api: api) : StubAIInterpretationService(),
+            ai: Self.aiService(api: api),
             rarity: InMemoryRarityService()              // TODO: SupabaseRarityService (pgvector / HNSW)
         )
+    }
+
+    /// Pick the Forge interpreter: real Claude when a key is present (local testing), else the
+    /// remote Edge Function if configured, else the deterministic offline stub.
+    private static func aiService(api: APIClient) -> AIInterpretationService {
+        if !Secrets.anthropicAPIKey.isEmpty {
+            return ClaudeAIInterpretationService(apiKey: Secrets.anthropicAPIKey)
+        }
+        return AppConfig.useRemoteAI ? RemoteAIInterpretationService(api: api) : StubAIInterpretationService()
     }
 
     /// Fully in-memory wiring for SwiftUI previews & tests.

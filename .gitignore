@@ -15,6 +15,7 @@ Crearo.xcodeproj/
 Package.resolved
 
 # ── Secrets & local config (NEVER commit) ─────────────
+CrearoApp/Secrets.swift
 CrearoApp/Resources/Config.xcconfig
 GoogleService-Info.plist
 *.env
