@@ -1,34 +1,22 @@
 import SwiftUI
 import CrearoCore
 
+// One world. The persistent RealityKit world is always on screen; the opening sequence and every
+// panel (the Forge, …) appear as overlays inside it. No tabs — the world IS the app.
 struct RootView: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
         ZStack {
-            Theme.night.ignoresSafeArea()
-            if app.worldState == nil {
-                CharacterCreationView()
-            } else {
-                MainTabView()
-            }
-        }
-    }
-}
+            BlobStage().ignoresSafeArea()   // the living world: clay companion in a grove
 
-struct MainTabView: View {
-    var body: some View {
-        TabView {
-            HomeBaseView()
-                .tabItem { Label("Home", systemImage: "house.fill") }
-            ForestView()
-                .tabItem { Label("World", systemImage: "tree.fill") }
-            CreationForgeView()
-                .tabItem { Label("Forge", systemImage: "hammer.fill") }
-            DailyQuestView()
-                .tabItem { Label("Daily", systemImage: "sparkles") }
-            GrowthReportView()
-                .tabItem { Label("Path", systemImage: "moon.stars.fill") }
+            if app.didBootstrap {
+                if app.worldState == nil {
+                    OpeningOverlay()        // immersive opening: questions as a compact opaque panel
+                } else {
+                    WorldHUD()              // CreaCash + Forge, panels slide up over the world
+                }
+            }
         }
     }
 }

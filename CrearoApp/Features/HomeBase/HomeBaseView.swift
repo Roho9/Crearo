@@ -3,6 +3,7 @@ import CrearoCore
 
 struct HomeBaseView: View {
     @Environment(AppState.self) private var app
+    @State private var confirmingReset = false
 
     var body: some View {
         NavigationStack {
@@ -69,6 +70,17 @@ struct HomeBaseView: View {
             }
             .background(Theme.night.ignoresSafeArea())
             .navigationTitle("Lastlight")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("New Game", systemImage: "arrow.counterclockwise") { confirmingReset = true }
+                }
+            }
+            .confirmationDialog("Begin again?", isPresented: $confirmingReset, titleVisibility: .visible) {
+                Button("Start a new game", role: .destructive) { Task { await app.resetGame() } }
+                Button("Keep playing", role: .cancel) {}
+            } message: {
+                Text("This clears your current world and returns to the opening. Your makings won't be recoverable.")
+            }
         }
     }
 

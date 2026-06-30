@@ -10,6 +10,7 @@ import CrearoCore
 final class AppState {
     var services: AppServices
     var worldState: WorldState?
+    var didBootstrap = false   // false until the saved world has loaded, so we show a splash (not the start page) during launch
     var user: UserAccount?
     var selectedRegion: RegionID = .mirrorwood
 
@@ -32,7 +33,7 @@ final class AppState {
 
     /// Restore session + load world, then apply graceful absence decay (GDD §32).
     func bootstrap() async {
-        user = try? await services.auth.restoreSession()
+        // Load the local world first (fast) and mark ready, so the UI never stalls on a splash.
         if let loaded = try? await services.persistence.loadWorldState() {
             let decayed = engine.decay.applyAbsence(to: loaded, now: Date())
             worldState = decayed
@@ -43,6 +44,19 @@ final class AppState {
             }
             if decayed != loaded { await persist() }
         }
+        didBootstrap = true
+        // Session restore is non-essential to entering the world; do it after.
+        user = try? await services.auth.restoreSession()
+    }
+
+    /// Wipe the saved world and return to the opening sequence (the "New Game" path).
+    func resetGame() async {
+        try? await services.persistence.deleteAll()
+        worldState = nil
+        latestProphecy = nil
+        latestCompanionLine = nil
+        lastForged = nil
+        toast = nil
     }
 
     func signInWithApple(identityToken: String, nonce: String) async {
