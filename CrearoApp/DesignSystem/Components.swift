@@ -31,7 +31,7 @@ struct CreationCard: View {
                 ])
 
                 if creation.decay.health < 0.99 {
-                    Label("Showing wear — restore it with a fresh making.", systemImage: "sparkle.magnifyingglass")
+                    Label("Showing wear. Restore it with a fresh making.", systemImage: "sparkle.magnifyingglass")
                         .font(.caption).foregroundStyle(Theme.grey)
                 }
             }
@@ -42,9 +42,9 @@ struct CreationCard: View {
         let e = creation.effect
         let pct = Int((e.magnitude * 100).rounded())
         switch e.kind {
-        case .slow: return "Coats foes in resin — slows \(pct)% for \(Int(e.durationSec))s."
-        case .fear: return "Shows enemies their own shadow — fear for \(Int(e.durationSec))s."
-        case .shield: return "Raises a stubborn glass ward — absorbs \(pct)%."
+        case .slow: return "Coats foes in resin; slows \(pct)% for \(Int(e.durationSec))s."
+        case .fear: return "Shows enemies their own shadow; fear for \(Int(e.durationSec))s."
+        case .shield: return "Raises a stubborn glass ward; absorbs \(pct)%."
         case .light: return "Sheds a light the fog cannot drink."
         case .burn: return "Sears with slow ember-light."
         case .charm: return "Soothes the corrupted into stillness."

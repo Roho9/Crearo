@@ -100,36 +100,72 @@ struct GameEngine {
 
     // MARK: Heuristic signal extraction (OFFLINE FALLBACK)
     // In production these signals come from on-device Core ML/Vision + the score-originality Edge
-    // Function (embeddings/rarity). This keyword/length heuristic just lets the app run without a
-    // backend so the loop is demonstrable. See docs/CREATIVITY_SCORING.md §3.
+    // Function (embeddings/rarity). This on-device heuristic lets the app run without a backend.
+    // It can't judge true semantic novelty (that needs the model), but it DOES refuse to reward
+    // empty, generic, or gibberish answers: those collapse the relevance gate so the hidden score
+    // lands near zero, instead of every non-empty string scoring middling. See CREATIVITY_SCORING §3,5.
+
+    /// Filler/stopwords that carry no creative specificity on their own.
+    private static let stopwords: Set<String> = [
+        "the", "a", "an", "and", "or", "but", "to", "of", "in", "on", "is", "it", "for",
+        "with", "that", "this", "i", "you", "my", "me", "so", "as", "at", "be", "by"
+    ]
+    /// Low-effort generic answers we explicitly refuse to reward.
+    private static let genericTokens: Set<String> = [
+        "thing", "things", "something", "anything", "stuff", "idk", "dunno", "whatever",
+        "nothing", "good", "nice", "cool", "ok", "okay", "fine", "test", "testing", "blah", "asdf", "yes", "no"
+    ]
 
     func makeScoringInput(text: String, modality: Modality, promptID: String, rarity: RarityResult?) -> ScoringInput {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = trimmed.lowercased()
-        let words = trimmed.split(whereSeparator: { $0 == " " || $0 == "\n" })
+        let words = lower.split { !$0.isLetter && !$0.isNumber }.map(String.init)
         let wordCount = words.count
-        let distinctWords = Set(lower.split(separator: " ")).count
         let clauses = max(1, trimmed.split(whereSeparator: { ",.;:".contains($0) }).count)
 
         func has(_ needles: [String]) -> Bool { needles.contains { lower.contains($0) } }
 
-        let relevance = trimmed.isEmpty ? 0.1 : min(1.0, 0.55 + Double(min(wordCount, 8)) * 0.05)
-        let coherence = trimmed.isEmpty ? 0.2 : 0.9
-        let detail = min(1.0, Double(wordCount) / 40.0)
-        let semantic = min(1.0, Double(distinctWords) / 12.0)
-        let categories = min(4, max(1, distinctWords / 4))
+        // "Meaningful" words = content words (not stopwords, length > 2). Distinct count of these
+        // is our offline proxy for how specific / substantive the answer is.
+        let meaningful = words.filter { $0.count > 2 && !Self.stopwords.contains($0) }
+        let distinctMeaningful = Set(meaningful).count
+        // A word with no vowels (and >3 chars) is almost certainly keyboard-mash.
+        let looksGibberish = !words.isEmpty && words.allSatisfy { w in
+            w.count > 3 && !w.contains(where: { "aeiouy".contains($0) })
+        }
+        // How much of the answer is just filler / generic tokens.
+        let genericCount = words.filter { Self.genericTokens.contains($0) }.count
+        let genericRatio = words.isEmpty ? 1.0 : Double(genericCount) / Double(words.count)
+        let isLowEffort = distinctMeaningful < 2 || genericRatio >= 0.5
+
+        // specificity 0...1 — needs ~6 distinct content words to saturate.
+        let specificity = min(1.0, Double(distinctMeaningful) / 6.0)
+
+        // Relevance/validity/coherence DRIVE the gate. Empty, gibberish, or generic answers
+        // push relevance below ScoringConfig.relevanceFloor (0.25), collapsing the whole score.
+        let relevance: Double
+        if trimmed.isEmpty || looksGibberish { relevance = 0.05 }
+        else if isLowEffort { relevance = 0.15 }
+        else { relevance = min(1.0, 0.3 + specificity * 0.7) }
+
+        let functionalValidity = (trimmed.isEmpty || looksGibberish) ? 0.1 : min(1.0, 0.35 + specificity * 0.65)
+        let coherence = trimmed.isEmpty ? 0.1 : (looksGibberish ? 0.2 : (wordCount >= 2 ? 0.85 : 0.5))
+
+        let detail = min(1.0, Double(meaningful.count) / 30.0)
+        let semantic = min(1.0, Double(distinctMeaningful) / 12.0)
+        let categories = min(4, max(1, distinctMeaningful / 3))
         let emotional = has(["love", "fear", "grief", "hope", "ache", "memory", "lonely", "warm", "miss", "tender"]) ? 0.7 : 0.2
         let symbol = has(["like", " as ", "becomes", "mirror", "shadow", "door", "tide", "echo", "thread"]) ? 0.6 : 0.2
-        let risk = trimmed.count > 60 ? 0.6 : (trimmed.count > 25 ? 0.4 : 0.25)
-        let effort = min(1.0, Double(wordCount) / 25.0 + 0.3)
+        let risk = isLowEffort ? 0.1 : (trimmed.count > 60 ? 0.6 : (trimmed.count > 25 ? 0.4 : 0.25))
+        let effort = isLowEffort ? 0.1 : min(1.0, Double(meaningful.count) / 20.0 + 0.2)
 
         return ScoringInput(
             promptID: promptID, modality: modality,
-            relevance: relevance, functionalValidity: 1.0, coherence: coherence,
+            relevance: relevance, functionalValidity: functionalValidity, coherence: coherence,
             semanticDistance: semantic, rarityPercentile: rarity?.percentile,
             ideaCount: clauses, distinctCategoryCount: categories, detail: detail,
             emotionalCharge: emotional, symbolism: symbol, riskSignal: risk,
-            reframingDetected: false, constraintSatisfied: !trimmed.isEmpty, effort: effort
+            reframingDetected: false, constraintSatisfied: !isLowEffort && !trimmed.isEmpty, effort: effort
         )
     }
 

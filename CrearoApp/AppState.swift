@@ -89,7 +89,7 @@ final class AppState {
         latestProphecy = outcome.act.prophecy
         latestCompanionLine = outcome.act.companionLine
         toast = outcome.affordable ? "Forged “\(outcome.creation.name)”." :
-            "“\(outcome.creation.name)” entered the world, but faint — you lacked the resources to fully fund it."
+            "“\(outcome.creation.name)” entered the world, but faint; you lacked the resources to fully fund it."
         if let cls = outcome.act.recognizedClass, ws.character.title == "a Maker" {
             ws.character.title = "the \(cls.title)"
             worldState = ws

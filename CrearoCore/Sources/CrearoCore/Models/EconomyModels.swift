@@ -7,7 +7,7 @@ public enum Resource: String, CaseIterable, Codable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .embers: return "Embers"
+        case .embers: return "CreaCash"
         case .musefire: return "Musefire"
         case .dreamsteel: return "Dreamsteel"
         case .ink: return "Ink"

@@ -26,7 +26,7 @@ struct ForestView: View {
                             }
                         }
                     }
-                    Text("The fog moves like it's listening. Make something the Mirrorwood hasn't seen — head to the Forge.")
+                    Text("The fog moves like it's listening. Make something the Mirrorwood hasn't seen. Head to the Forge.")
                         .font(.footnote).foregroundStyle(Theme.candle)
                         .padding(10)
                         .background(RoundedRectangle(cornerRadius: 10).fill(Theme.night.opacity(0.6)))

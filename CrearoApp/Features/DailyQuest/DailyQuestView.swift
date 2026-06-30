@@ -44,7 +44,7 @@ struct DailyQuestView: View {
                         CompanionBanner(name: ws.companion.name, line: line, brightness: ws.companion.brightness)
                     }
 
-                    Text("Come back each day. The hearth stays bright while you do — and dims, gently, when you're gone too long.")
+                    Text("Come back each day. The hearth stays bright while you do, and dims, gently, when you're gone too long.")
                         .font(.footnote).foregroundStyle(Theme.grey)
                 }
                 .padding(20)

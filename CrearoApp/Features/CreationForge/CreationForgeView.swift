@@ -10,7 +10,7 @@ struct CreationForgeView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text("Speak an idea into being. The forge will shape it to fit this place — and the world will remember it.")
+                    Text("Speak an idea into being. The forge will shape it to fit this place, and the world will remember it.")
                         .font(Theme.body).foregroundStyle(Theme.ink.opacity(0.85))
 
                     if let ws = app.worldState {

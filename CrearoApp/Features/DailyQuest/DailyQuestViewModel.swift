@@ -16,7 +16,7 @@ struct DailyPrompt {
 
     static let `default` = DailyPrompt(
         title: "A small making",
-        body: "The hearth asks for one new thing today. Make something — anything — the world hasn't seen from you yet.",
+        body: "The hearth asks for one new thing today. Make something, anything, the world hasn't seen from you yet.",
         focusDimension: nil)
 
     /// Targeted daily prompt for the player's current growth edge (GDD §31).
@@ -32,7 +32,7 @@ struct DailyPrompt {
                          focusDimension: d)
         case .elaboration:
             return .init(title: "Give it rooms",
-                         body: "Take a plain idea — a lantern — and add rich, specific detail until it feels real.",
+                         body: "Take a plain idea, a lantern, and add rich, specific detail until it feels real.",
                          focusDimension: d)
         case .usefulness:
             return .init(title: "Make it work",
@@ -44,7 +44,7 @@ struct DailyPrompt {
                          focusDimension: d)
         case .emotionalExpression:
             return .init(title: "Something that aches",
-                         body: "Make something that carries a real feeling — grief, hope, or warmth. Not clever. True.",
+                         body: "Make something that carries a real feeling: grief, hope, or warmth. Not clever. True.",
                          focusDimension: d)
         case .symbolicThinking:
             return .init(title: "Speak in symbol",
