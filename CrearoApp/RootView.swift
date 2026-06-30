@@ -1,40 +1,31 @@
 import SwiftUI
 import CrearoCore
 
-// One world. The persistent RealityKit world is always on screen; the opening sequence, the HUD,
-// and the touch controls draw on top of it. No tabs — the world IS the app.
+// A daily creativity practice. One app: a brief onboarding, then today's challenge.
 struct RootView: View {
     @Environment(AppState.self) private var app
-    @StateObject private var world = WorldController()
-    @State private var forgeOpen = false
-
-    /// Grey (0) before any making; warms toward full colour (1) with the companion's brightness,
-    /// dimmed by the Greying. Starts low so the player *sees* the world relight as they create.
-    private var worldVitality: Float {
-        guard let ws = app.worldState else { return 0.12 }
-        return Float(max(0.12, ws.companion.brightness * (1 - ws.home.corruptionLevel)))
-    }
 
     var body: some View {
         ZStack {
-            WorldStage(controller: world).ignoresSafeArea()
-            WeatherOverlay(weather: world.weather).ignoresSafeArea().allowsHitTesting(false)
-
-            if app.didBootstrap {
-                if app.worldState == nil {
-                    OpeningOverlay()
-                } else {
-                    WorldHUD(forgeOpen: $forgeOpen)
-                    if !forgeOpen { WorldControls(controller: world) }   // controls hide when a panel is open
-                    if forgeOpen { ForgePanel(isPresented: $forgeOpen) }
-                }
+            Theme.night.ignoresSafeArea()
+            if !app.didBootstrap {
+                SplashView()
+            } else if app.worldState == nil {
+                OnboardingView()
+            } else {
+                DailyHomeView()
             }
         }
-        .onAppear {
-            world.onGather = { n in Task { await app.gather(creaCash: n) } }
-            world.setVitality(worldVitality)
+    }
+}
+
+/// A calm loading state while the saved profile is restored.
+struct SplashView: View {
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "sparkles").font(.system(size: 44)).foregroundStyle(Theme.ember)
+            ProgressView().tint(Theme.candle)
         }
-        .onChange(of: worldVitality) { _, v in world.setVitality(v) }
     }
 }
 

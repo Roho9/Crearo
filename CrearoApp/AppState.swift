@@ -5,6 +5,16 @@ import CrearoCore
 // The single source of truth for the running app. Holds session + world-state + services and
 // exposes high-level intents to the SwiftUI feature views. @MainActor so UI mutations are safe.
 
+/// Result of a daily challenge: the hidden creativity score, sparks earned, coaching, and streak.
+struct ChallengeOutcome: Identifiable {
+    let id = UUID()
+    let score: CreativityScore
+    let earned: [ResourceAmount]
+    let coaching: String
+    let streak: Int
+    let advancedStreak: Bool
+}
+
 @MainActor
 @Observable
 final class AppState {
@@ -142,6 +152,46 @@ final class AppState {
         toast = "The world brightened. You gained " + result.earned.map { "\($0.amount) \($0.resource.displayName)" }.joined(separator: ", ") + "."
         await persist()
         return result
+    }
+
+    // MARK: Daily creativity challenge (the new core loop)
+
+    /// Today's challenge — biased toward the player's weakest creative dimension.
+    var todaysChallenge: DailyChallenge {
+        ChallengeProvider.challenge(for: Date(), weakest: worldState?.profile.weakestDimensions(1).first)
+    }
+
+    /// Whether the player has already completed a challenge today (streak already advanced).
+    var hasDoneToday: Bool { worldState?.lastChallengeDay == ChallengeProvider.dayKey() }
+
+    /// Score the answer (offline engine), advance the streak once/day, and fetch coaching.
+    @discardableResult
+    func submitChallenge(_ challenge: DailyChallenge, answer: String) async -> ChallengeOutcome? {
+        guard let result = await completeDailyQuest(responseText: answer, modality: .writing, focus: challenge.focus) else { return nil }
+
+        var advanced = false
+        if var ws = worldState, ws.lastChallengeDay != challenge.id {
+            ws.streak = Self.isConsecutive(ws.lastChallengeDay, before: challenge.id) ? ws.streak + 1 : 1
+            ws.lastChallengeDay = challenge.id
+            worldState = ws
+            advanced = true
+            await persist()
+        }
+
+        let coaching = await CreativityCoach.coach(prompt: challenge.prompt, answer: answer,
+                                                   dimensions: result.score.dimensions,
+                                                   apiKey: Secrets.anthropicAPIKey)
+            ?? result.prophecy ?? result.companionLine
+
+        return ChallengeOutcome(score: result.score, earned: result.earned, coaching: coaching,
+                                streak: worldState?.streak ?? 0, advancedStreak: advanced)
+    }
+
+    private static func isConsecutive(_ prev: String?, before today: String) -> Bool {
+        guard let prev else { return false }
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        guard let p = f.date(from: prev), let t = f.date(from: today) else { return false }
+        return Calendar.current.dateComponents([.day], from: p, to: t).day == 1
     }
 
     /// The personalized final boss preview, generated from the current profile (GDD §50).

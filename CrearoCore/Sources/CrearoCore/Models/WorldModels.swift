@@ -191,12 +191,15 @@ public struct WorldState: Codable, Equatable, Sendable {
     public var home: HomeBase
     public var badges: [Badge]
     public var unlockedRegions: [RegionID]
+    public var streak: Int                 // consecutive days with a completed challenge
+    public var lastChallengeDay: String?   // "yyyy-MM-dd" of the last completed challenge
     public var updatedAt: Date
 
     public init(character: PlayerCharacter, companion: Companion, profile: CreativeProfile = CreativeProfile(),
                 wallet: ResourceWallet = ResourceWallet(), creations: [Creation] = [],
                 home: HomeBase = HomeBase(), badges: [Badge] = [],
-                unlockedRegions: [RegionID] = [.lastlight, .mirrorwood], updatedAt: Date = Date()) {
+                unlockedRegions: [RegionID] = [.lastlight, .mirrorwood],
+                streak: Int = 0, lastChallengeDay: String? = nil, updatedAt: Date = Date()) {
         self.character = character
         self.companion = companion
         self.profile = profile
@@ -205,6 +208,8 @@ public struct WorldState: Codable, Equatable, Sendable {
         self.home = home
         self.badges = badges
         self.unlockedRegions = unlockedRegions
+        self.streak = streak
+        self.lastChallengeDay = lastChallengeDay
         self.updatedAt = updatedAt
     }
 
