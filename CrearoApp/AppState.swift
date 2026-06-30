@@ -5,12 +5,24 @@ import CrearoCore
 // The single source of truth for the running app. Holds session + world-state + services and
 // exposes high-level intents to the SwiftUI feature views. @MainActor so UI mutations are safe.
 
-/// Result of a daily challenge: the hidden creativity score, sparks earned, coaching, and streak.
+/// The cut-scene the companion acts out, derived from the player's answer.
+struct SceneSpec {
+    let item: String
+    let colorName: String
+    let action: SceneAction
+    let target: String
+    let outcomeCaption: String
+}
+
+/// Result of a daily challenge: hidden score, sparks, the cut-scene, the new story beat, and streak.
 struct ChallengeOutcome: Identifiable {
     let id = UUID()
     let score: CreativityScore
     let earned: [ResourceAmount]
     let coaching: String
+    let storyBeat: String
+    let chapterTitle: String
+    let scene: SceneSpec
     let streak: Int
     let advancedStreak: Bool
 }
@@ -156,34 +168,41 @@ final class AppState {
 
     // MARK: Daily creativity challenge (the new core loop)
 
-    /// Today's challenge — biased toward the player's weakest creative dimension.
+    /// Today's challenge — the next chapter in the story (advances once per completed day).
     var todaysChallenge: DailyChallenge {
-        ChallengeProvider.challenge(for: Date(), weakest: worldState?.profile.weakestDimensions(1).first)
+        ChallengeProvider.challenge(chapterIndex: worldState?.storyLog.count ?? 0)
     }
 
-    /// Whether the player has already completed a challenge today (streak already advanced).
+    /// Whether the player has already completed a challenge today (story already advanced).
     var hasDoneToday: Bool { worldState?.lastChallengeDay == ChallengeProvider.dayKey() }
 
-    /// Score the answer (offline engine), advance the streak once/day, and fetch coaching.
+    /// Score the answer (offline engine), build the cut-scene + next story beat, and advance once/day.
     @discardableResult
     func submitChallenge(_ challenge: DailyChallenge, answer: String) async -> ChallengeOutcome? {
         guard let result = await completeDailyQuest(responseText: answer, modality: .writing, focus: challenge.focus) else { return nil }
+        let companion = worldState?.companion.name ?? "your companion"
+
+        let script = await StoryDirector.direct(chapterTitle: challenge.title, question: challenge.question,
+                                                answer: answer, companion: companion,
+                                                dimensions: result.score.dimensions, apiKey: Secrets.anthropicAPIKey)
+            ?? StoryDirector.offline(answer: answer, companion: companion, chapterTitle: challenge.title)
 
         var advanced = false
         if var ws = worldState, ws.lastChallengeDay != challenge.id {
             ws.streak = Self.isConsecutive(ws.lastChallengeDay, before: challenge.id) ? ws.streak + 1 : 1
             ws.lastChallengeDay = challenge.id
+            ws.storyLog.append(script.storyBeat)
             worldState = ws
             advanced = true
             await persist()
         }
 
-        let coaching = await CreativityCoach.coach(prompt: challenge.prompt, answer: answer,
-                                                   dimensions: result.score.dimensions,
-                                                   apiKey: Secrets.anthropicAPIKey)
-            ?? result.prophecy ?? result.companionLine
-
+        let coaching = script.coaching.isEmpty ? (result.prophecy ?? result.companionLine) : script.coaching
+        let scene = SceneSpec(item: script.item, colorName: script.color,
+                              action: SceneAction.from(script.action), target: script.target,
+                              outcomeCaption: script.outcome)
         return ChallengeOutcome(score: result.score, earned: result.earned, coaching: coaching,
+                                storyBeat: script.storyBeat, chapterTitle: challenge.title, scene: scene,
                                 streak: worldState?.streak ?? 0, advancedStreak: advanced)
     }
 

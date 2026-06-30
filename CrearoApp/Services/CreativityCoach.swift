@@ -21,7 +21,7 @@ enum CreativityCoach {
         prompt, a person's answer, and a hidden creativity read, write 2-3 sentences of feedback: \
         first name one specific, genuine strength in what they wrote, then give ONE concrete nudge \
         to grow tomorrow. Be encouraging and concrete, never generic. No scores, no numbers, no \
-        markdown, no preamble — just the feedback.
+        markdown, no preamble. Just the feedback.
         """
         let userMsg = """
         Prompt: \(prompt)

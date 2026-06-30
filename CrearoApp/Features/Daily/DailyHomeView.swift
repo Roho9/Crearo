@@ -1,35 +1,41 @@
 import SwiftUI
 import CrearoCore
 
-// The home of the app: today's one creative challenge, with the companion above it. Answer it →
-// the result sheet shows the pixel celebration, your creative shape, coaching, and streak.
+// Home: the next chapter of your story, with one deep question that asks you to invent the way
+// forward. Answer it, and your companion acts it out.
 struct DailyHomeView: View {
     @Environment(AppState.self) private var app
     @State private var answer = ""
     @State private var outcome: ChallengeOutcome?
     @State private var submitting = false
     @State private var showGrowth = false
+    @State private var showStory = false
 
     var body: some View {
         let challenge = app.todaysChallenge
         let vitality = app.worldState?.companion.brightness ?? 0.3
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 18) {
                     HStack {
                         Label("\(app.worldState?.streak ?? 0)", systemImage: "flame.fill").foregroundStyle(Theme.ember)
                         Spacer()
-                        Label("\(app.worldState?.wallet[.embers] ?? 0)", systemImage: "sparkles").foregroundStyle(Theme.candle)
+                        Label("\(app.worldState?.wallet[.embers] ?? 0)", systemImage: "sparkles").foregroundStyle(Theme.berry)
                     }
                     .font(.headline)
 
-                    PixelCompanion(vitality: vitality).frame(height: 150)
+                    PixelCompanion(vitality: vitality).frame(height: 150).frame(maxWidth: .infinity)
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(challenge.mode.uppercased()).font(.caption.weight(.bold)).foregroundStyle(Theme.grey).tracking(1.5)
-                        Text(challenge.prompt).font(Theme.heading).foregroundStyle(Theme.candle)
-                            .fixedSize(horizontal: false, vertical: true)
+                    Text("CHAPTER \(challenge.chapter)  •  \(challenge.title.uppercased())")
+                        .font(.caption.weight(.bold)).foregroundStyle(Theme.magic).tracking(1)
+
+                    HearthCard {
+                        Text(challenge.setup).font(Theme.body).foregroundStyle(Theme.ink)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
+
+                    Text(challenge.question).font(Theme.heading).foregroundStyle(Theme.candle)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     TextField("", text: $answer,
                               prompt: Text(challenge.placeholder).foregroundStyle(Theme.grey), axis: .vertical)
@@ -45,34 +51,68 @@ struct DailyHomeView: View {
                         }
                     } label: {
                         HStack {
-                            if submitting { ProgressView().tint(Theme.night) }
-                            Text(submitting ? "Reflecting…" : (app.hasDoneToday ? "Make something else" : "Submit"))
-                                .font(.headline)
+                            if submitting { ProgressView().tint(.white) }
+                            Text(submitting ? "Bringing it to life…" : "Make it happen").font(.headline)
                         }
                         .frame(maxWidth: .infinity).padding(.vertical, 14)
-                        .background(Theme.ember, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(Theme.night)
+                        .foregroundStyle(.white)
+                        .background(Theme.ember, in: RoundedRectangle(cornerRadius: 14))
                     }
                     .disabled(answer.trimmingCharacters(in: .whitespaces).isEmpty || submitting)
                     .opacity(answer.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1)
 
                     if app.hasDoneToday {
-                        Text("You've made your thing today. Come back tomorrow for a new challenge, or keep practising.")
+                        Text("You moved the story forward today. Come back tomorrow for the next chapter, or keep playing.")
                             .font(.footnote).foregroundStyle(Theme.grey)
                     }
                 }
                 .padding(20)
             }
             .background(Theme.night.ignoresSafeArea())
-            .navigationTitle("Today")
+            .navigationTitle("Prism")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Story", systemImage: "book.fill") { showStory = true }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Path", systemImage: "chart.line.uptrend.xyaxis") { showGrowth = true }
                 }
             }
-            .sheet(item: $outcome) { o in
-                ChallengeResultView(outcome: o) { answer = "" }
-            }
+            .fullScreenCover(item: $outcome) { o in OutcomeView(outcome: o) { answer = "" } }
             .sheet(isPresented: $showGrowth) { GrowthView() }
+            .sheet(isPresented: $showStory) { StoryView() }
+        }
+    }
+}
+
+// "Story so far": the unfolding adventure the player has built, one beat per day.
+struct StoryView: View {
+    @Environment(AppState.self) private var app
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    let beats = app.worldState?.storyLog ?? []
+                    if beats.isEmpty {
+                        Text("Your story begins with your first making. Answer today's challenge to write its first line.")
+                            .font(.callout).foregroundStyle(Theme.grey)
+                    } else {
+                        ForEach(Array(beats.enumerated()), id: \.offset) { i, beat in
+                            HStack(alignment: .top, spacing: 12) {
+                                Text("\(i + 1)").font(.caption.weight(.bold)).foregroundStyle(.white)
+                                    .frame(width: 26, height: 26).background(Circle().fill(Theme.rainbow[i % Theme.rainbow.count]))
+                                Text(beat).font(.callout).foregroundStyle(Theme.ink)
+                            }
+                        }
+                    }
+                }
+                .padding(20)
+            }
+            .background(Theme.night.ignoresSafeArea())
+            .navigationTitle("Story so far")
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
         }
     }
 }
@@ -95,11 +135,6 @@ struct GrowthView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Your creative shape").font(.headline).foregroundStyle(Theme.candle)
                             FlowChips(chips: CreativeDimension.allCases.map { (Self.label($0), ws.profile.value($0) * 100) })
-                        }
-                        if let p = app.latestProphecy {
-                            Text(p).font(.callout.italic()).foregroundStyle(Theme.candle)
-                                .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Theme.panel, in: RoundedRectangle(cornerRadius: 14))
                         }
                     }
                     .padding(20)

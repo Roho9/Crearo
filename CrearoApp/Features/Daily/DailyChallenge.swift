@@ -1,14 +1,16 @@
 import Foundation
 import CrearoCore
 
-// One deep, open-ended creative problem per day. The *type* rotates across research-backed
-// creativity modes (one per CreativeDimension), and biases toward the player's weakest dimension
-// so daily practice naturally progresses across skills.
+// The story is a bright, whimsical adventure through the world of Prism, where colour and wonder
+// come from imagination. Each day is the next chapter: a little story setup, then one deep question
+// that asks you to invent the way forward. Your answer is then acted out by your companion.
 
 struct DailyChallenge: Identifiable {
-    let id: String                 // stable per calendar day ("yyyy-MM-dd")
-    let mode: String               // e.g. "Divergent thinking"
-    let prompt: String
+    let id: String                 // "yyyy-MM-dd" (stable per day)
+    let chapter: Int               // 1-based chapter number
+    let title: String
+    let setup: String              // story context
+    let question: String           // the creative ask
     let placeholder: String
     let focusDimension: CreativeDimension?
 
@@ -24,64 +26,74 @@ enum ChallengeProvider {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f.string(from: d)
     }
 
-    /// Today's challenge: 4 of every 5 days train the player's weakest dimension; the rest rotate
-    /// so no skill is neglected. Deterministic per day so it's the same all day.
-    static func challenge(for date: Date = Date(), weakest: CreativeDimension?) -> DailyChallenge {
-        let dayIndex = Int(date.timeIntervalSince1970 / 86_400)
-        let dims = CreativeDimension.allCases
-        let dim: CreativeDimension = (weakest != nil && dayIndex % 5 != 0) ? weakest! : dims[abs(dayIndex) % dims.count]
-        let bank = pool[dim] ?? pool[.originality]!
-        let pick = bank[abs(dayIndex) % bank.count]
-        return DailyChallenge(id: dayKey(date), mode: modeName(dim), prompt: pick.0,
-                              placeholder: pick.1, focusDimension: dim)
+    /// The chapter advances with the story (one new beat per completed day), so it stays the same
+    /// all day and only moves forward when you finish a challenge.
+    static func challenge(chapterIndex: Int, date: Date = Date()) -> DailyChallenge {
+        let ch = chapters[chapterIndex % chapters.count]
+        return DailyChallenge(id: dayKey(date), chapter: chapterIndex + 1, title: ch.0, setup: ch.1,
+                              question: ch.2, placeholder: ch.3, focusDimension: ch.4)
     }
 
-    private static func modeName(_ d: CreativeDimension) -> String {
-        switch d {
-        case .originality: return "Originality"
-        case .fluency: return "Fluency"
-        case .flexibility: return "Flexibility"
-        case .elaboration: return "Elaboration"
-        case .usefulness: return "Useful invention"
-        case .riskTaking: return "Bold leaps"
-        case .emotionalExpression: return "Emotional truth"
-        case .symbolicThinking: return "Symbolic thinking"
-        }
-    }
+    // (title, setup, question, placeholder, focus dimension)
+    private static let chapters: [(String, String, String, String, CreativeDimension?)] = [
+        ("The Spark",
+         "You wake in Prism, a world where everything is bright but oddly still, as if it forgot how to play. Your companion blinks awake beside you, curious.",
+         "Invent the very first thing you and your companion make together to wake the world up. What is it, and what does it do?",
+         "We make a…", .originality),
 
-    // (prompt, placeholder) per dimension.
-    private static let pool: [CreativeDimension: [(String, String)]] = [
-        .originality: [
-            ("Invent something the world has never seen that solves a problem you had this week. Describe what it is and how it works.", "a small machine that…"),
-            ("Design a brand-new holiday. What is it called, what do people do, and why would it matter?", "On this day, people…"),
-        ],
-        .fluency: [
-            ("List as many genuinely different uses as you can for a single paperclip. Quantity first — don't filter.", "a paperclip could be…"),
-            ("In two minutes, name every way you could get a stranger to smile. Go wide.", "you could…"),
-        ],
-        .flexibility: [
-            ("You must cross a freezing river with no bridge. Describe THREE completely different approaches — no overlap.", "First, I could… Second… Third…"),
-            ("Re-explain how a phone works to: a child, a medieval blacksmith, and an alien. Make each genuinely different.", "To the child…"),
-        ],
-        .elaboration: [
-            ("Take a plain idea — 'a lamp' — and add rich, specific detail until it feels completely real. What does it look, sound, and feel like?", "It's a lamp made of…"),
-            ("Describe your perfect room in such vivid detail that someone could draw it from your words alone.", "When you walk in…"),
-        ],
-        .usefulness: [
-            ("Invent a tool that would make one annoying daily task delightful. Say exactly how it works.", "It works by…"),
-            ("Redesign the umbrella so it actually solves the things umbrellas fail at. Be specific and practical.", "My umbrella would…"),
-        ],
-        .riskTaking: [
-            ("Describe the strangest, boldest creation you'd be a little afraid to actually make. Don't play it safe.", "I'd make…"),
-            ("Propose an idea that most people would call impossible — then argue why it could work anyway.", "Everyone says it's impossible, but…"),
-        ],
-        .emotionalExpression: [
-            ("Make something that carries a real feeling — grief, hope, longing, or joy. Not clever. True. Describe it.", "It would feel like…"),
-            ("Describe an object that would comfort someone on their worst day. Why would it work?", "It's a…"),
-        ],
-        .symbolicThinking: [
-            ("If courage were an object you could hold, what would it be? Describe it as a relic.", "Courage looks like…"),
-            ("Turn an ordinary moment from today into a small metaphor for something larger about life.", "It was like…"),
-        ],
+        ("The Wide Gap",
+         "The path ends at a canyon, far too wide to jump. A friendly cloud drifts by, unbothered.",
+         "Describe a wonderfully clever way to cross the gap. The stranger and more delightful, the better.",
+         "I would cross it by…", .riskTaking),
+
+        ("The Grumble",
+         "A small, grumpy creature called a Grumble sits in the road, refusing to move because it has never seen anything fun.",
+         "Invent something so joyful it makes the Grumble laugh. Describe it in vivid detail.",
+         "I show it a…", .emotionalExpression),
+
+        ("Three Doors",
+         "A wall has three identical doors and no handles. Your companion tilts its head.",
+         "Give three completely different ways to open a door that has no handle. Make each one truly different.",
+         "First… Second… Third…", .flexibility),
+
+        ("The Lantern Tree",
+         "A tall tree is covered in tiny dark lanterns, waiting for light.",
+         "Invent a light for the lanterns that the night sky has never seen. What does it look and feel like?",
+         "A light made of…", .elaboration),
+
+        ("The Tangle",
+         "A field of vines has knotted itself into a giant tangle blocking the meadow.",
+         "Design a tool that untangles the vines and turns the mess into something useful. Say exactly how it works.",
+         "My tool works by…", .usefulness),
+
+        ("The Echo",
+         "A cave repeats everything in funny voices and will only let you pass if you say something it has never heard.",
+         "Make up a sentence the cave could never have heard before. Be playful and original.",
+         "I say…", .originality),
+
+        ("The Long List",
+         "A bridge keeper will lower the bridge if you can name enough uses for the single button in their hand.",
+         "List as many genuinely different uses for a button as you can. Quantity first, do not filter.",
+         "A button could…", .fluency),
+
+        ("The Riddle Pond",
+         "A still pond shows a reflection that asks: what does courage look like if you could hold it?",
+         "Describe courage as an object you could carry. What is it made of?",
+         "Courage looks like…", .symbolicThinking),
+
+        ("The Sleepy Giant",
+         "A gentle giant snores across the only road, and waking it rudely would be unkind.",
+         "Invent a kind, creative way to wake the giant that would make it smile.",
+         "To wake it I…", .emotionalExpression),
+
+        ("The Color Thief",
+         "A mischievous breeze called the Fizzle has been swiping colours and hiding them. It loves a good trade.",
+         "Invent something so wonderful the Fizzle happily trades all the colours back for it.",
+         "I offer it a…", .originality),
+
+        ("The Last Bright",
+         "At the heart of Prism stands a great grey statue of yourself, made of every idea you were once too unsure to try.",
+         "Invent the boldest creation yet to bring the statue to life and finish waking the world.",
+         "I make a…", .riskTaking),
     ]
 }
