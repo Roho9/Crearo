@@ -75,6 +75,16 @@ That last line is the whole tragedy: **the final boss is you** — the Hollow Yo
 
 ---
 
+## Canon: how this layers onto names already in the code
+The engine already ships strong regional writing. This bible is the cosmology *beneath* it — they're one canon, no contradictions:
+
+- **"the Grey" / the Greying** = the Sameness, spreading. (already in companion/prophecy lines)
+- **the Mirrorwood** = the region where the Pale Mimic shows you copies of yourself; tests originality. (already a region)
+- **the Hollow Stag** = a lesser Mimic-beast that learns your *repeated* makings and hunts the predictable — a herald of the Hollow You, not the boss itself. (already the repetition-nudge demon)
+- **the Lull, the Sealed Door, the Cartographer, the Forgefather, the Unfinished** = spirits/wardens of the regions, remnants of the Hollow War. Keep as flavor.
+- **Regions** (Lastlight, Mirrorwood, Hush Mire, Greymarch/Leaden Court, Emberreach, the Lull, the Unwritten) = places along the Greying's advance; **the Unwritten** is the approach to the Ashen Loom, where the Hollow You waits.
+- **Emergent classes** in code (Forger, Mythweaver, Wyrdmage, Rootspeaker, Inkbinder, Hollow Spark, Wardmaker, Relicseer) = the named **Hands**. Keep these names.
+
 ## Suggested build order (small, shippable steps)
 1. **Reskin the strings** the player already sees with this lore (companion lines, prophecy, region/resource names, opening narration). Cheap, high-impact — the game *feels* like this immediately.
 2. **Color-as-progress:** drive global world saturation from companion brightness / profile, so making visibly relights the world.
