@@ -14,56 +14,23 @@ struct DailyHomeView: View {
     var body: some View {
         let challenge = app.todaysChallenge
         let vitality = app.worldState?.companion.brightness ?? 0.3
+        let done = app.hasDoneToday
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack {
                         Label("\(app.worldState?.streak ?? 0)", systemImage: "flame.fill").foregroundStyle(Theme.ember)
                         Spacer()
-                        Label("\(app.worldState?.wallet[.embers] ?? 0)", systemImage: "sparkles").foregroundStyle(Theme.berry)
+                        Label("\(app.worldState?.totalPoints ?? 0) pts", systemImage: "sparkles").foregroundStyle(Theme.berry)
                     }
                     .font(.headline)
 
                     PixelCompanion(vitality: vitality).frame(height: 150).frame(maxWidth: .infinity)
 
-                    Text("CHAPTER \(challenge.chapter)  •  \(challenge.title.uppercased())")
-                        .font(.caption.weight(.bold)).foregroundStyle(Theme.magic).tracking(1)
-
-                    HearthCard {
-                        Text(challenge.setup).font(Theme.body).foregroundStyle(Theme.ink)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    Text(challenge.question).font(Theme.heading).foregroundStyle(Theme.candle)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    TextField("", text: $answer,
-                              prompt: Text(challenge.placeholder).foregroundStyle(Theme.grey), axis: .vertical)
-                        .lineLimit(4...12).textFieldStyle(.plain).padding(14)
-                        .background(Theme.panel, in: RoundedRectangle(cornerRadius: 14))
-                        .foregroundStyle(Theme.ink)
-
-                    Button {
-                        Task {
-                            submitting = true
-                            outcome = await app.submitChallenge(challenge, answer: answer)
-                            submitting = false
-                        }
-                    } label: {
-                        HStack {
-                            if submitting { ProgressView().tint(.white) }
-                            Text(submitting ? "Bringing it to life…" : "Make it happen").font(.headline)
-                        }
-                        .frame(maxWidth: .infinity).padding(.vertical, 14)
-                        .foregroundStyle(.white)
-                        .background(Theme.ember, in: RoundedRectangle(cornerRadius: 14))
-                    }
-                    .disabled(answer.trimmingCharacters(in: .whitespaces).isEmpty || submitting)
-                    .opacity(answer.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1)
-
-                    if app.hasDoneToday {
-                        Text("You moved the story forward today. Come back tomorrow for the next chapter, or keep playing.")
-                            .font(.footnote).foregroundStyle(Theme.grey)
+                    if done {
+                        clearedToday(nextLevel: challenge)
+                    } else {
+                        levelPrompt(challenge)
                     }
                 }
                 .padding(20)
@@ -78,10 +45,77 @@ struct DailyHomeView: View {
                     Button("Path", systemImage: "chart.line.uptrend.xyaxis") { showGrowth = true }
                 }
             }
-            .fullScreenCover(item: $outcome) { o in OutcomeView(outcome: o) { answer = "" } }
+            .fullScreenCover(item: $outcome) { o in
+                // Passing clears the box for tomorrow; failing keeps the idea so it can be refined.
+                OutcomeView(outcome: o, onRetry: {}, onDone: { answer = "" })
+            }
             .sheet(isPresented: $showGrowth) { GrowthView() }
             .sheet(isPresented: $showStory) { StoryView() }
         }
+    }
+
+    // The active level: scene, goal, target score, and the answer box.
+    @ViewBuilder private func levelPrompt(_ challenge: DailyChallenge) -> some View {
+        HStack {
+            Text("LEVEL \(challenge.level)  •  \(challenge.title.uppercased())")
+                .font(.caption.weight(.bold)).foregroundStyle(Theme.magic).tracking(1)
+            Spacer()
+            GlowTag(text: "Goal: \(challenge.passMark) pts", color: Theme.sky)
+        }
+
+        HearthCard {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(challenge.setup).font(Theme.body).foregroundStyle(Theme.ink)
+                Label(challenge.goal, systemImage: "target").font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.ember)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
+        Text(challenge.question).font(Theme.heading).foregroundStyle(Theme.candle)
+            .fixedSize(horizontal: false, vertical: true)
+
+        TextField("", text: $answer,
+                  prompt: Text(challenge.placeholder).foregroundStyle(Theme.grey), axis: .vertical)
+            .lineLimit(4...12).textFieldStyle(.plain).padding(14)
+            .background(Theme.panel, in: RoundedRectangle(cornerRadius: 14))
+            .foregroundStyle(Theme.ink)
+
+        Button {
+            Task {
+                submitting = true
+                outcome = await app.submitChallenge(challenge, answer: answer)
+                submitting = false
+            }
+        } label: {
+            HStack {
+                if submitting { ProgressView().tint(.white) }
+                Text(submitting ? "Bringing it to life…" : "Make it happen").font(.headline)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 14)
+            .foregroundStyle(.white)
+            .background(Theme.ember, in: RoundedRectangle(cornerRadius: 14))
+        }
+        .disabled(answer.trimmingCharacters(in: .whitespaces).isEmpty || submitting)
+        .opacity(answer.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1)
+
+        Text("Your idea is graded out of 100. Reach \(challenge.passMark) to clear this level.")
+            .font(.footnote).foregroundStyle(Theme.grey)
+    }
+
+    // Once you clear a level, that is your one level for today.
+    @ViewBuilder private func clearedToday(nextLevel challenge: DailyChallenge) -> some View {
+        HearthCard {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Level cleared today", systemImage: "checkmark.seal.fill")
+                    .font(.headline).foregroundStyle(Theme.moss)
+                Text("You brought a little more of Prism back to life. Come back tomorrow for Level \(challenge.level): \(challenge.title).")
+                    .font(.callout).foregroundStyle(Theme.ink)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        Button("Read the story so far") { showStory = true }
+            .font(.headline).foregroundStyle(Theme.magic)
     }
 }
 
@@ -128,8 +162,13 @@ struct GrowthView: View {
                 if let ws = app.worldState {
                     VStack(alignment: .leading, spacing: 22) {
                         HStack {
+                            stat("\(ws.level)", "level")
                             stat("\(ws.streak)", "day streak")
-                            stat("\(ws.profile.totalActs)", "makings")
+                            stat("\(ws.bestScore)", "best score")
+                        }
+                        HStack {
+                            stat("\(ws.totalPoints)", "total points")
+                            stat("\(ws.profile.totalActs)", "ideas tried")
                             stat("\(ws.wallet[.embers])", "sparks")
                         }
                         VStack(alignment: .leading, spacing: 10) {

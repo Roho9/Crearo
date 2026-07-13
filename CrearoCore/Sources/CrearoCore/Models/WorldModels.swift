@@ -191,15 +191,19 @@ public struct WorldState: Codable, Equatable, Sendable {
     public var home: HomeBase
     public var badges: [Badge]
     public var unlockedRegions: [RegionID]
-    public var streak: Int                 // consecutive days with a completed challenge
-    public var lastChallengeDay: String?   // "yyyy-MM-dd" of the last completed challenge
-    public var storyLog: [String]          // the unfolding story, one beat per completed day
+    public var level: Int                  // 1-based current level (only advances when an idea passes the gate)
+    public var totalPoints: Int            // lifetime creativity points earned (rubric totals)
+    public var bestScore: Int              // best single-answer score, 0...100
+    public var streak: Int                 // consecutive days with a passed level
+    public var lastChallengeDay: String?   // "yyyy-MM-dd" of the last day a level was passed
+    public var storyLog: [String]          // the unfolding story, one beat per passed level
     public var updatedAt: Date
 
     public init(character: PlayerCharacter, companion: Companion, profile: CreativeProfile = CreativeProfile(),
                 wallet: ResourceWallet = ResourceWallet(), creations: [Creation] = [],
                 home: HomeBase = HomeBase(), badges: [Badge] = [],
                 unlockedRegions: [RegionID] = [.lastlight, .mirrorwood],
+                level: Int = 1, totalPoints: Int = 0, bestScore: Int = 0,
                 streak: Int = 0, lastChallengeDay: String? = nil, storyLog: [String] = [],
                 updatedAt: Date = Date()) {
         self.character = character
@@ -210,6 +214,9 @@ public struct WorldState: Codable, Equatable, Sendable {
         self.home = home
         self.badges = badges
         self.unlockedRegions = unlockedRegions
+        self.level = level
+        self.totalPoints = totalPoints
+        self.bestScore = bestScore
         self.streak = streak
         self.lastChallengeDay = lastChallengeDay
         self.storyLog = storyLog

@@ -14,17 +14,21 @@ struct SceneSpec {
     let outcomeCaption: String
 }
 
-/// Result of a daily challenge: hidden score, sparks, the cut-scene, the new story beat, and streak.
+/// Result of attempting a level: the graded score, whether it passed the gate, the cut-scene, the
+/// story beat, coaching, sparks, and streak. The score is now shown to the player (out of 100).
 struct ChallengeOutcome: Identifiable {
     let id = UUID()
-    let score: CreativityScore
+    let rubric: RubricResult        // total 0...100 + per-criterion breakdown + band
+    let passed: Bool                // did it clear this level's rising pass mark
+    let passMark: Int
+    let level: Int                  // the level number that was attempted
+    let levelTitle: String
     let earned: [ResourceAmount]
     let coaching: String
     let storyBeat: String
-    let chapterTitle: String
     let scene: SceneSpec
     let streak: Int
-    let advancedStreak: Bool
+    let advanced: Bool              // moved on to the next level
 }
 
 @MainActor
@@ -166,44 +170,58 @@ final class AppState {
         return result
     }
 
-    // MARK: Daily creativity challenge (the new core loop)
+    // MARK: The level loop (the core game)
 
-    /// Today's challenge — the next chapter in the story (advances once per completed day).
+    /// The level you face right now. It only advances when you clear the current one, so it holds
+    /// steady all day and moves forward the moment an idea passes the gate.
     var todaysChallenge: DailyChallenge {
-        ChallengeProvider.challenge(chapterIndex: worldState?.storyLog.count ?? 0)
+        ChallengeProvider.challenge(level: worldState?.level ?? 1)
     }
 
-    /// Whether the player has already completed a challenge today (story already advanced).
+    /// Whether you have already cleared a level today (one level a day; come back tomorrow).
     var hasDoneToday: Bool { worldState?.lastChallengeDay == ChallengeProvider.dayKey() }
 
-    /// Score the answer (offline engine), build the cut-scene + next story beat, and advance once/day.
+    /// Score the answer against the hard rubric, stage the cut-scene, and advance ONLY if it clears
+    /// this level's rising pass mark. Failing does not consume the day: you can refine and try again.
     @discardableResult
-    func submitChallenge(_ challenge: DailyChallenge, answer: String) async -> ChallengeOutcome? {
-        guard let result = await completeDailyQuest(responseText: answer, modality: .writing, focus: challenge.focus) else { return nil }
+    func submitChallenge(_ level: DailyChallenge, answer: String) async -> ChallengeOutcome? {
+        // The offline engine still runs: it updates the private profile and pays baseline sparks.
+        guard let result = await completeDailyQuest(responseText: answer, modality: .writing, focus: level.focus) else { return nil }
         let companion = worldState?.companion.name ?? "your companion"
 
-        let script = await StoryDirector.direct(chapterTitle: challenge.title, question: challenge.question,
-                                                answer: answer, companion: companion,
-                                                dimensions: result.score.dimensions, apiKey: Secrets.anthropicAPIKey)
-            ?? StoryDirector.offline(answer: answer, companion: companion, chapterTitle: challenge.title)
+        // Claude grades + directs when a key is present; otherwise fall back to the offline engine.
+        let ai = await StoryDirector.direct(level: level, answer: answer, companion: companion,
+                                            apiKey: Secrets.anthropicAPIKey)
+        let raw = ai?.scores ?? RubricScores.from(dimensions: result.score.dimensions, gate: result.score.gate)
+        let graded = CreativityRubric.default.evaluate(raw)
+        let passed = LevelGate.passes(score: graded.total, level: level.level)
+
+        let scene = ai ?? StoryDirector.offlineScene(answer: answer, companion: companion, level: level)
 
         var advanced = false
-        if var ws = worldState, ws.lastChallengeDay != challenge.id {
-            ws.streak = Self.isConsecutive(ws.lastChallengeDay, before: challenge.id) ? ws.streak + 1 : 1
-            ws.lastChallengeDay = challenge.id
-            ws.storyLog.append(script.storyBeat)
+        if var ws = worldState {
+            ws.bestScore = max(ws.bestScore, graded.total)
+            // Advance at most once per day, and only when the idea is creative enough.
+            if passed, ws.lastChallengeDay != level.id {
+                ws.streak = Self.isConsecutive(ws.lastChallengeDay, before: level.id) ? ws.streak + 1 : 1
+                ws.lastChallengeDay = level.id
+                ws.level += 1
+                ws.totalPoints += graded.total
+                ws.storyLog.append(scene.storyBeat)
+                advanced = true
+            }
             worldState = ws
-            advanced = true
             await persist()
         }
 
-        let coaching = script.coaching.isEmpty ? (result.prophecy ?? result.companionLine) : script.coaching
-        let scene = SceneSpec(item: script.item, colorName: script.color,
-                              action: SceneAction.from(script.action), target: script.target,
-                              outcomeCaption: script.outcome)
-        return ChallengeOutcome(score: result.score, earned: result.earned, coaching: coaching,
-                                storyBeat: script.storyBeat, chapterTitle: challenge.title, scene: scene,
-                                streak: worldState?.streak ?? 0, advancedStreak: advanced)
+        let coaching = scene.coaching.isEmpty ? (result.prophecy ?? result.companionLine) : scene.coaching
+        let spec = SceneSpec(item: scene.item, colorName: scene.color,
+                             action: SceneAction.from(scene.action), target: scene.target,
+                             outcomeCaption: scene.outcome)
+        return ChallengeOutcome(rubric: graded, passed: passed, passMark: level.passMark,
+                                level: level.level, levelTitle: level.title, earned: result.earned,
+                                coaching: coaching, storyBeat: scene.storyBeat, scene: spec,
+                                streak: worldState?.streak ?? 0, advanced: advanced)
     }
 
     private static func isConsecutive(_ prev: String?, before today: String) -> Bool {

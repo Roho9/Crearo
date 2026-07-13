@@ -13,10 +13,10 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 20) {
                 PixelCompanion(vitality: 0.4).frame(height: 150).frame(maxWidth: .infinity)
 
-                Text("A daily practice in making things.")
+                Text("Wake the world of Prism.")
                     .font(Theme.title).foregroundStyle(Theme.candle)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Each day, one creative challenge. Answer it, and your companion, like your creativity, grows a little.")
+                Text("A creativity game. Each day is one level, a little puzzle you solve by inventing the way through. Get creative enough and your companion acts your idea out, and you move on.")
                     .font(.subheadline).foregroundStyle(Theme.ink.opacity(0.85))
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -32,11 +32,11 @@ struct OnboardingView: View {
                     }
                 } label: {
                     HStack {
-                        if starting { ProgressView().tint(Theme.night) }
+                        if starting { ProgressView().tint(.white) }
                         Text(starting ? "Beginning…" : "Begin").font(.headline)
                     }
                     .frame(maxWidth: .infinity).padding(.vertical, 14)
-                    .background(Theme.ember, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(Theme.night)
+                    .background(Theme.ember, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(.white)
                 }
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || starting)
                 .opacity(name.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1)
