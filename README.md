@@ -1,70 +1,73 @@
 # Crearo
 
-> A cozy dark-fantasy survival RPG where you rebuild a world drained of imagination by *making things* — and the more original, detailed, and brave your creations are, the more the world comes back to life. Underneath the game, a research-grounded engine quietly trains you to think more creatively.
+Crearo is an iOS creativity puzzle game. Players invent solutions to unusual situations, receive a visible creativity score out of 100, and advance through levels. The intended experience combines a light, expressive world with satisfying progress and opportunities to compare ideas and scores with friends.
 
-This repository is the **foundation** of the Crearo iOS app: the complete design, a real Swift/SwiftUI codebase implementing the non-3D backbone, and the backend.
+The current app calls its world **Prism**. Its new **Paper Theatre** style uses original SwiftUI artwork: a folded-paper companion, layered landscapes, quiet fiber texture, and small scenes that react to the player's invention. It is an early playable foundation; judge calibration, more authored content, and social features still need development.
 
-## What's real in this repo (and what isn't)
+![Native Paper Theatre motion study](docs/previews/paper-theatre-motion.gif)
 
-A fully shippable 3D open-world game is a multi-year content effort. What's here is the part a real studio starts from — the systems that are hard and defensible:
+This study renders the production drawing code into an animated GIF. It is not a simulator capture. The study loops; an in-game scene finishes after 4.4 seconds, and players can skip to their score at any time.
 
-| Built & working | Designed, to be built later |
-|-----------------|------------------------------|
-| The hidden **creativity-scoring engine** (gate → dimensions → trajectory), unit-tested | The full 3D open world, art, animation pipeline |
-| The **resource economy**, **balance engine** (idea right-sizing), **rarity** contract | Generative restyling of user art into 3D content |
-| **AI-interpretation** contract + offline stub + the `interpret-idea` Edge Function | All 6 regions, 8 classes, full myth arc |
-| **Personalized final-boss** composer from the player's weaknesses | Voice/music/gesture inputs, social features |
-| SwiftUI **MVP shell**: opening sequence, forge, home, daily quest, prophecy report, RealityKit forest stub | Production auth (Sign in with Apple), CloudKit media sync |
-| **Supabase** schema (pgvector + HNSW + RLS) + two Edge Functions | The longitudinal creativity-validation study |
+## Current player experience
 
-The design is exhaustive in [`docs/`](docs); the code is a runnable seed of the MVP described in `docs/ROADMAP.md`.
+1. Complete the opening and name a companion.
+2. Read the current level's situation and goal, then type an invention or solution.
+3. Receive a score breakdown and practical feedback. Passing ideas get a short Paper Theatre scene; offline grades are labeled practice estimates.
+4. Reach the level's required score to advance. Failed answers can be refined and retried.
+5. View the accumulated story and personal progress. The current version permits one successful level per day.
+
+There are twelve authored challenges. After those, the challenge bank cycles while the pass mark continues to rise. Progress is saved locally as JSON.
+
+The stage includes ten obstacle archetypes and eight invention silhouettes, with eased action-specific movement, expressive reactions, and static outcomes for Reduce Motion. The interface keeps the current goal, draft, and one primary action clear. Failed attempts keep the draft for revision and do not grant rewards; successful attempts update rewards, world growth, and progression from the same assessment, once per day.
+
+## Development direction and known gaps
+
+The [Paper Theatre design brief](docs/PAPER_THEATRE_DESIGN.md) explains the research, implemented design choices, motion guidance, and a first-session playtest. The earlier [direction brief](docs/CREARO_DIRECTION.md) records the starting implementation audit and proposes twelve new challenges across three regions. That expansion is a proposal, not implemented content.
+
+The next work needs to address these concrete gaps:
+
+- **Scoring and progression:** the default offline scoring path caps at 62/100, below Level 5's required 64. Its vocabulary and length heuristics cannot evaluate whether an answer solves the actual challenge.
+- **World and content:** the paper artwork now distinguishes obstacles and invention categories, but arbitrary inventions still map to a bounded set of silhouettes. The proposed three-region expansion has not been implemented.
+- **Social comparison:** there is no leaderboard or shared, server-verified challenge score system yet.
+
+Validation for the Paper Theatre change: all 40 core tests pass, and the real app source compiles and links against the iOS simulator SDK with an iOS 17 deployment target. Native source-rendered artwork and result previews were inspected. An Xcode build, simulator launch, device performance, VoiceOver, keyboard behavior, and large Dynamic Type still require hands-on verification; the previews do not establish those results.
+
+The existing design documents also describe an earlier dark-fantasy survival RPG with hidden creativity scores. Those documents contain useful systems and research, but they do not describe the current app's complete player flow. The direction brief records the current goal of visible scores, level progression, and a light visual identity.
+
+## Run locally
+
+Requirements: Xcode with an iOS SDK, XcodeGen, and a simulator or device supporting iOS 17 or later.
+
+Run the platform-independent game-logic tests:
+
+```bash
+cd CrearoCore
+swift test
+```
+
+From the repository root, create the local configuration and generate the Xcode project:
+
+```bash
+cp CrearoApp/Secrets.swift.example CrearoApp/Secrets.swift
+xcodegen generate
+open Crearo.xcodeproj
+```
+
+Leave `anthropicAPIKey` empty to use the offline fallback, subject to the scoring limitation above. To try AI challenge grading and scene direction locally, set your Anthropic key in the gitignored `Secrets.swift`. This direct API configuration is for local testing; a released app needs server-side model credentials and authoritative scoring.
+
+In Xcode, select the `CrearoApp` scheme, choose a simulator or device, and run. For a physical device, configure your signing team and bundle identifier.
 
 ## Repository layout
 
-```
-Crearo/
-├── docs/                     ← the full design & research
-│   ├── GAME_DESIGN_DOCUMENT.md   (all 66 sections)
-│   ├── CREATIVITY_SCORING.md     (the research + math, with citations)
-│   ├── TECH_ARCHITECTURE.md      (MVVM, RealityKit, backend choice)
-│   ├── SETUP_GUIDE.md            (Apple account, Xcode, Git, backends)
-│   └── ROADMAP.md                (MVP → full version, risks, monetization)
-├── CrearoCore/               ← Swift Package: pure, testable game logic (Foundation-only)
-│   ├── Sources/CrearoCore/{Models,Engines,Services}
-│   └── Tests/CrearoCoreTests
-├── CrearoApp/                ← SwiftUI app (MVVM features + RealityKit + DI)
-├── supabase/                 ← schema.sql (pgvector) + Edge Functions
-├── project.yml               ← XcodeGen spec → Crearo.xcodeproj
-└── .gitignore
-```
+| Path | Purpose |
+| --- | --- |
+| `CrearoApp/` | SwiftUI app, daily level flow, cut-scenes, local persistence, and AI integration |
+| `CrearoCore/` | Foundation-only Swift package for models, scoring, economy, and progression, with unit tests |
+| `docs/CREARO_DIRECTION.md` | Current audit, recommended next steps, and proposed world expansion |
+| `docs/PAPER_THEATRE_DESIGN.md` | Research, Paper Theatre design decisions, limitations, and playtest protocol |
+| `docs/previews/` | Native source-rendered artwork studies, not device screenshots |
+| `docs/` | Earlier game design, story, scoring research, architecture, roadmap, and setup guides |
+| `supabase/` | Backend schema and Edge Functions for the earlier forge and originality systems |
+| `project.yml` | XcodeGen project specification |
 
-## Quick start
-
-```bash
-# 1. Run the pure game-logic tests — no Xcode/simulator needed (fast TDD loop)
-cd CrearoCore && swift test
-
-# 2. Generate & open the iOS app
-brew install xcodegen
-cd .. && xcodegen generate && open Crearo.xcodeproj
-#   → select your Team + a unique bundle id, then Run. The app works fully OFFLINE
-#     (deterministic AI stub + local JSON save); no backend required to try the loop.
-
-# 3. (Optional) wire the backend
-#   See docs/SETUP_GUIDE.md §5 — apply supabase/schema.sql, deploy the two Edge Functions,
-#   copy CrearoApp/Resources/Config.example.xcconfig → Config.xcconfig, set USE_REMOTE_AI=YES.
-```
-
-## The core loop (try this)
-Open the app → light the fire and name your companion (opening sequence) → **Forge** → type *"a sword that shoots honey to slow enemies"* → it becomes **Honeyfang**, balanced and named, in your world → check **Path** to see your *Sky of Makings* brighten and glimpse the personalized shadow forming from your weaknesses.
-
-## Design pillars (one line each)
-- **Game first, training invisible.** No scores shown — ever. The world's color *is* the feedback.
-- **Creativity = novelty × usefulness.** A relevance gate means random nonsense never scores (defends the known DAT failure mode).
-- **Failure transforms the world; it never ends the game.**
-- **The final boss is *you*** — assembled from your weakest creative patterns; you win by growing past them.
-
-See [`docs/GAME_DESIGN_DOCUMENT.md`](docs/GAME_DESIGN_DOCUMENT.md) for everything.
-
----
-*Status: foundational build v0.1. Built as a real startup seed, not a prototype to throw away.*
+Forge, home-base, and other earlier RPG systems remain in the codebase, but the current root view opens the daily level experience. Supabase setup is optional for those earlier systems; the visible challenge judge currently uses the separate local-testing AI path described above.

@@ -29,6 +29,7 @@ struct ChallengeOutcome: Identifiable {
     let scene: SceneSpec
     let streak: Int
     let advanced: Bool              // moved on to the next level
+    var isPracticeEstimate: Bool = true
 }
 
 @MainActor
@@ -77,7 +78,7 @@ final class AppState {
 
     /// Gather CreaCash from a world action (chop/fight). Brightens the world a touch (GDD §28).
     func gather(creaCash n: Int) async {
-        guard var ws = worldState, n > 0 else { return }
+        guard !isWorking, var ws = worldState, n > 0 else { return }
         ws.wallet.earn(.embers, n)
         ws.companion.brightness = min(1, ws.companion.brightness + 0.04)
         ws.home.lastMeaningfulActivity = Date()
@@ -87,12 +88,13 @@ final class AppState {
 
     /// Wipe the saved world and return to the opening sequence (the "New Game" path).
     func resetGame() async {
-        try? await services.persistence.deleteAll()
+        // Invalidate pending judgments before awaiting storage, so they cannot restore this world.
         worldState = nil
         latestProphecy = nil
         latestCompanionLine = nil
         lastForged = nil
         toast = nil
+        try? await services.persistence.deleteAll()
     }
 
     func signInWithApple(identityToken: String, nonce: String) async {
@@ -115,16 +117,18 @@ final class AppState {
 
     @discardableResult
     func forge(ideaText: String, modality: Modality) async -> ForgeOutcome? {
-        guard var ws = worldState, !ideaText.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        guard !isWorking, let initialWorld = worldState,
+              !ideaText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         isWorking = true
         defer { isWorking = false }
 
-        let promptID = "forge.\(selectedRegion.rawValue)"
+        let region = selectedRegion
+        let promptID = "forge.\(region.rawValue)"
         let context = CreationContext(
-            level: ws.character.level, region: selectedRegion,
-            walletSnapshot: Resource.allCases.map { ResourceAmount($0, ws.wallet[$0]) },
-            dominantClass: ws.character.dominantClass(), constraint: nil,
-            profileSummary: ws.profile.snapshot)
+            level: initialWorld.character.level, region: region,
+            walletSnapshot: Resource.allCases.map { ResourceAmount($0, initialWorld.wallet[$0]) },
+            dominantClass: initialWorld.character.dominantClass(), constraint: nil,
+            profileSummary: initialWorld.profile.snapshot)
         let idea = IdeaInput(promptID: promptID, modality: modality, text: ideaText)
 
         let interpreted = (try? await services.ai.interpret(idea, context: context))
@@ -132,8 +136,10 @@ final class AppState {
         let rarity = try? await services.rarity.rarity(promptID: promptID,
                                                        embedding: GameEngine.pseudoEmbedding(ideaText))
 
+        guard !Task.isCancelled, var ws = worldState,
+              ws.character.id == initialWorld.character.id else { return nil }
         let outcome = engine.forge(into: &ws, ideaText: ideaText, modality: modality,
-                                   region: selectedRegion, interpreted: interpreted, rarity: rarity)
+                                   region: region, interpreted: interpreted, rarity: rarity)
         worldState = ws
         lastForged = outcome.creation
         latestProphecy = outcome.act.prophecy
@@ -153,13 +159,16 @@ final class AppState {
 
     @discardableResult
     func completeDailyQuest(responseText: String, modality: Modality, focus: DimensionScores = .uniform) async -> ScoredActResult? {
-        guard var ws = worldState, !responseText.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        guard !isWorking, let initialWorld = worldState,
+              !responseText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         isWorking = true
         defer { isWorking = false }
 
         let promptID = "daily.\(todayKey())"
         let rarity = try? await services.rarity.rarity(promptID: promptID,
                                                        embedding: GameEngine.pseudoEmbedding(responseText))
+        guard !Task.isCancelled, var ws = worldState,
+              ws.character.id == initialWorld.character.id else { return nil }
         let result = engine.respondToQuest(into: &ws, text: responseText, modality: modality,
                                            promptID: promptID, focus: focus, rarity: rarity)
         worldState = ws
@@ -185,50 +194,68 @@ final class AppState {
     /// this level's rising pass mark. Failing does not consume the day: you can refine and try again.
     @discardableResult
     func submitChallenge(_ level: DailyChallenge, answer: String) async -> ChallengeOutcome? {
-        // The offline engine still runs: it updates the private profile and pays baseline sparks.
-        guard let result = await completeDailyQuest(responseText: answer, modality: .writing, focus: level.focus) else { return nil }
-        let companion = worldState?.companion.name ?? "your companion"
+        let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !isWorking, !trimmed.isEmpty, let initialWorld = worldState,
+              ChallengeProgression.canAttempt(initialWorld, level: level.level,
+                                               day: level.id, currentDay: ChallengeProvider.dayKey()) else {
+            return nil
+        }
+        isWorking = true
+        defer { isWorking = false }
+        let companion = initialWorld.companion.name
 
         // Claude grades + directs when a key is present; otherwise fall back to the offline engine.
-        let ai = await StoryDirector.direct(level: level, answer: answer, companion: companion,
+        // Neither evaluation path mutates the save. Only an accepted result earns rewards below.
+        let ai = await StoryDirector.direct(level: level, answer: trimmed, companion: companion,
                                             apiKey: Secrets.anthropicAPIKey)
-        let raw = ai?.scores ?? RubricScores.from(dimensions: result.score.dimensions, gate: result.score.gate)
+        guard !Task.isCancelled, var ws = worldState,
+              ws.character.id == initialWorld.character.id,
+              ChallengeProgression.canAttempt(ws, level: level.level, day: level.id,
+                                               currentDay: ChallengeProvider.dayKey()) else { return nil }
+
+        let raw: RubricScores
+        if let ai {
+            raw = ai.scores
+        } else {
+            // The local lexical heuristic is a practice estimate, not a semantic creativity judge.
+            let input = engine.makeScoringInput(text: trimmed, modality: .writing,
+                                               promptID: "challenge.\(level.level).\(level.id)", rarity: nil)
+            let score = engine.scoring.score(input)
+            raw = RubricScores.from(dimensions: score.dimensions, gate: score.gate)
+        }
         let graded = CreativityRubric.default.evaluate(raw)
         let passed = LevelGate.passes(score: graded.total, level: level.level)
 
-        let scene = ai ?? StoryDirector.offlineScene(answer: answer, companion: companion, level: level)
-
-        var advanced = false
-        if var ws = worldState {
-            ws.bestScore = max(ws.bestScore, graded.total)
-            // Advance at most once per day, and only when the idea is creative enough.
-            if passed, ws.lastChallengeDay != level.id {
-                ws.streak = Self.isConsecutive(ws.lastChallengeDay, before: level.id) ? ws.streak + 1 : 1
-                ws.lastChallengeDay = level.id
-                ws.level += 1
-                ws.totalPoints += graded.total
-                ws.storyLog.append(scene.storyBeat)
-                advanced = true
-            }
-            worldState = ws
-            await persist()
+        let scene = ai ?? StoryDirector.offlineScene(answer: trimmed, companion: companion, level: level)
+        let disposition = ChallengeProgression.record(
+            into: &ws, level: level.level, day: level.id,
+            currentDay: ChallengeProvider.dayKey(), score: graded.total, storyBeat: scene.storyBeat)
+        guard disposition != .unavailable else { return nil }
+        let advanced = disposition == .cleared
+        var earned: [ResourceAmount] = []
+        if advanced {
+            let result = engine.commitAssessedChallenge(into: &ws, raw: raw,
+                promptID: "challenge.\(level.level).\(level.id)", focus: level.focus)
+            earned = result.earned
+            latestProphecy = result.prophecy
+            latestCompanionLine = result.companionLine
         }
+        worldState = ws
+        await persist()
+        guard !Task.isCancelled, worldState?.character.id == initialWorld.character.id else { return nil }
 
-        let coaching = scene.coaching.isEmpty ? (result.prophecy ?? result.companionLine) : scene.coaching
+        let coaching = scene.coaching.isEmpty
+            ? "Try strengthening \(graded.weakestCriterion.title.lowercased()): \(graded.weakestCriterion.blurb)"
+            : scene.coaching
         let spec = SceneSpec(item: scene.item, colorName: scene.color,
                              action: SceneAction.from(scene.action), target: scene.target,
-                             outcomeCaption: scene.outcome)
+                             outcomeCaption: passed ? scene.outcome : "An idea to refine. The challenge is still open.")
         return ChallengeOutcome(rubric: graded, passed: passed, passMark: level.passMark,
-                                level: level.level, levelTitle: level.title, earned: result.earned,
-                                coaching: coaching, storyBeat: scene.storyBeat, scene: spec,
-                                streak: worldState?.streak ?? 0, advanced: advanced)
-    }
-
-    private static func isConsecutive(_ prev: String?, before today: String) -> Bool {
-        guard let prev else { return false }
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
-        guard let p = f.date(from: prev), let t = f.date(from: today) else { return false }
-        return Calendar.current.dateComponents([.day], from: p, to: t).day == 1
+                                level: level.level, levelTitle: level.title, earned: earned,
+                                coaching: coaching,
+                                storyBeat: passed ? scene.storyBeat : "The challenge is still open. Revise this idea and try it again.",
+                                scene: spec,
+                                streak: ws.streak, advanced: advanced, isPracticeEstimate: ai == nil)
     }
 
     /// The personalized final boss preview, generated from the current profile (GDD §50).

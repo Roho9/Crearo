@@ -10,7 +10,7 @@ struct CrearoApp: App {
         WindowGroup {
             RootView()
                 .environment(app)
-                .preferredColorScheme(.dark)   // cozy dark fantasy (GDD §7)
+                .preferredColorScheme(.light)  // the paper theatre uses light stock and dark ink
                 .task { await app.bootstrap() }
                 .tint(Theme.ember)
         }
