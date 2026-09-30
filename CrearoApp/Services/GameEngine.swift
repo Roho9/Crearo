@@ -64,6 +64,21 @@ struct GameEngine {
         return applyAct(into: &ws, score: scoring.score(input), input: input, focus: focus)
     }
 
+    /// Apply a challenge judgment after progression accepts it. The visible rubric and the world
+    /// rewards/profile share one assessment; no extra AI call or unrelated fallback grade runs here.
+    func commitAssessedChallenge(into ws: inout WorldState, raw: RubricScores,
+                                 promptID: String, focus: DimensionScores) -> ScoredActResult {
+        let score = ChallengeAssessment.worldScore(from: raw)
+        let input = ScoringInput(
+            promptID: promptID, modality: .writing, relevance: score.gate,
+            functionalValidity: score.gate, coherence: score.gate,
+            semanticDistance: raw.originality, detail: raw.elaboration,
+            emotionalCharge: raw.delight, symbolism: raw.depth, riskSignal: raw.boldness,
+            constraintSatisfied: score.constraintSatisfied, effort: score.effort
+        )
+        return applyAct(into: &ws, score: score, input: input, focus: focus)
+    }
+
     // MARK: Shared post-scoring side effects (profile, companion, badges, classes, regions, prophecy)
 
     private func applyAct(into ws: inout WorldState, score: CreativityScore, input: ScoringInput,
