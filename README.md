@@ -26,7 +26,7 @@ The [Paper Theatre design brief](docs/PAPER_THEATRE_DESIGN.md) explains the rese
 
 The next work needs to address these concrete gaps:
 
-- **Scoring and progression:** the default offline scoring path caps at 62/100, below Level 5's required 64. Its vocabulary and length heuristics cannot evaluate whether an answer solves the actual challenge.
+- **Scoring and progression:** the current offline challenge path can reach 77/100, below Level 12's required 78. Its vocabulary and length heuristics cannot evaluate whether an answer solves the actual challenge. The earlier 62-point limit in the starting audit applied to the previous cold-start rarity path, which the revised challenge flow no longer uses.
 - **World and content:** the paper artwork now distinguishes obstacles and invention categories, but arbitrary inventions still map to a bounded set of silhouettes. The proposed three-region expansion has not been implemented.
 - **Social comparison:** there is no leaderboard or shared, server-verified challenge score system yet.
 

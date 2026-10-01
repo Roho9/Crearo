@@ -2,6 +2,8 @@
 
 Prepared September 30, 2026. Repository reviewed at commit [`3d86901`](https://github.com/Roho9/Crearo/tree/3d869014b9a24dd067083256e0c97e85c86a8f5d).
 
+This is the historical starting audit. The later [Paper Theatre implementation](PAPER_THEATRE_DESIGN.md) adds original artwork and fixes the split assessment/reward flow. Its current offline challenge path uses no rarity estimate and can reach 77/100, rather than the 62-point limit described for the audited code below. Late offline progression remains blocked at Level 12's 78-point target, and the lexical judge still does not understand the goal.
+
 ## The game to build toward
 
 Crearo should help people practice thinking beyond their first answer. A player encounters an understandable obstacle, invents a solution, sees that invention affect a lively world, earns a satisfying creativity score, and advances to the next level. Comparing ideas and scores with friends gives that loop a second reason to return.
