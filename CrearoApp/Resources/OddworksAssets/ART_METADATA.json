@@ -1,0 +1,52 @@
+{
+  "style": "Original surreal graphic sculpture; cobalt, acid, coral, chalk, lavender and ink",
+  "authoring": "Blender Python / Crearo, original geometry and deterministic hand-authored pigment textures",
+  "license": "Original project assets; no third-party model or texture downloads",
+  "units": "meters; runtime X-right, Y-up, Z-front (Blender authoring Z-up is converted on export)",
+  "Loop.usdz": {
+    "origin": "feet at Y=0; +Z is the front of the eye",
+    "height_m": 1.5784,
+    "purpose": "single-eye crescent companion",
+    "bounds_m": {
+      "minimum": [
+        -0.842,
+        0.005,
+        -0.136
+      ],
+      "maximum": [
+        0.762,
+        1.5834,
+        0.252
+      ]
+    },
+    "meshes": 18,
+    "triangles": 10716
+  },
+  "StrangeAtelier.usdz": {
+    "origin": "deck centre at (0,0,0); deck top Y~0.055; +Z is foreground",
+    "width_m": 5.8,
+    "purpose": "surreal arched traversal diorama",
+    "bounds_m": {
+      "minimum": [
+        -2.9,
+        -0.445,
+        -2
+      ],
+      "maximum": [
+        2.9,
+        2.5829,
+        2
+      ]
+    },
+    "meshes": 7,
+    "triangles": 16392
+  },
+  "materials": "UV-mapped PNG pigment textures, constant PBR roughness/metalness; tiny enamel flecks are baked into base color",
+  "runtime": "No camera, light, studio floor or animation exported. Root prim names Loop and StrangeAtelier.",
+  "validation": {
+    "packaging": "Apple usdzip --arkitAsset --checkCompliance",
+    "strict_schema": "Apple usdchecker --arkit --strict, both assets pass",
+    "roundtrip": "Both packaged USDZs reimported and rendered in Blender 3.6.23 Cycles CPU",
+    "device_rendering": "RealityKit/iPhone performance not established by these offline checks"
+  }
+}

@@ -30,3 +30,10 @@ supabase/.temp/
 
 # ── macOS ─────────────────────────────────────────────
 .DS_Store
+
+# Reproducible Blender intermediates; packed source and runtime assets are tracked.
+*.blend1
+__pycache__/
+art/Oddworks/renders/
+art/Oddworks/textures/
+art/Oddworks/usd-source/

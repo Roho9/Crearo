@@ -11,16 +11,14 @@ struct CrearoApp: App {
         WindowGroup {
             RootView()
                 .environment(app)
-                .preferredColorScheme(.light)  // the paper theatre uses light stock and dark ink
+                .preferredColorScheme(.dark)
                 .task {
                     await app.bootstrap()
-                    if scenePhase == .active { await app.prepareIdeaCoach() }
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase != .active { Task { await app.flushChallengeDrafts() } }
-                    else { Task { await app.prepareIdeaCoach() } }
                 }
-                .tint(Theme.ember)
+                .tint(AtelierStyle.acid)
         }
     }
 }

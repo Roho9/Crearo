@@ -1,21 +1,12 @@
 import SwiftUI
 import CrearoCore
 
-// A daily creativity practice. One app: a brief onboarding, then today's challenge.
+// The new construction game keeps earlier AppState saves available through the collection.
 struct RootView: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        ZStack {
-            Theme.night.ignoresSafeArea()
-            if !app.didBootstrap {
-                SplashView()
-            } else if app.worldState == nil {
-                OnboardingView()
-            } else {
-                DailyHomeView()
-            }
-        }
+        AtelierView()
     }
 }
 
