@@ -1,5 +1,6 @@
 import SwiftUI
 import CrearoCore
+import SpriteKit
 
 // A finite paper-theatre vignette stages the chosen action and the actual obstacle. Inventions
 // map to bounded silhouettes; the caption supplies the detail that a hand-authored stage cannot.
@@ -24,12 +25,9 @@ struct CutSceneView: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
-    @State private var start = Date()
-    @State private var completed = false
-    private let duration: Double = 4.4
+    @State private var playback = PaperTheatrePlayback()
 
-    private var sceneTarget: PaperSceneTarget { .from(target) }
-    private var invention: PaperInvention { .from(item, action: action) }
+    private var completed: Bool { playback.completed }
     private var color: Color { Self.color(colorName) }
 
     private var sceneContent: some View {
@@ -47,31 +45,49 @@ struct CutSceneView: View {
                     .multilineTextAlignment(.center)
             }
 
-            ZStack {
-                Canvas { context, size in
-                    PaperTheatreArt.landscape(PaperTheatreArt.stageContext(context, size: size),
-                                              target: sceneTarget, region: region)
-                }
-                TimelineView(.animation(minimumInterval: 1.0 / 60,
-                                        paused: completed || reduceMotion || scenePhase != .active)) { timeline in
+            Group {
+                if playback.sceneUnavailable {
+                    // If rasterisation cannot prepare textures (for example under memory
+                    // pressure), the authored static stage and score remain available.
                     Canvas { context, size in
-                        let time = completed || reduceMotion ? duration : max(0, min(duration, timeline.date.timeIntervalSince(start)))
-                        draw(PaperTheatreArt.stageContext(context, size: size), time: time)
+                        let context = PaperTheatreArt.stageContext(context, size: size)
+                        let kind = PaperSceneTarget.from(target)
+                        PaperTheatreArt.landscape(context, target: kind, region: region)
+                        PaperTheatreArt.target(context, kind: kind, progress: 1,
+                                              center: CGPoint(x: 449, y: 261), scale: 0.9)
+                        PaperTheatreArt.companion(context, center: CGPoint(x: 180, y: 267),
+                                                  scale: 0.82, vitality: 0.95, time: 1,
+                                                  celebrate: true, still: true)
+                        PaperTheatreArt.invention(context, kind: .from(item, action: action),
+                                                  center: CGPoint(x: 330, y: 211), scale: 0.78, color: color)
+                        PaperTheatreArt.foreground(context, region: region)
                     }
+                } else {
+                    SpriteView(scene: playback.scene,
+                               isPaused: scenePhase != .active,
+                               preferredFramesPerSecond: completed || reduceMotion ? 30 : 60,
+                               options: [.ignoresSiblingOrder, .shouldCullNonVisibleNodes],
+                               debugOptions: Self.diagnostics)
                 }
-                Canvas { context, size in
-                    PaperTheatreArt.foreground(PaperTheatreArt.stageContext(context, size: size), region: region)
-                }
-                PaperGrainView(opacity: 0.065)
             }
-            .frame(height: 230)
+            .aspectRatio(600.0 / 320.0, contentMode: .fit)
+            .overlay { PaperGrainView(opacity: 0.065).allowsHitTesting(false) }
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
                     .strokeBorder(Theme.ink.opacity(0.14), lineWidth: 1)
+                    .allowsHitTesting(false)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Paper theatre: \(item) helps your companion with \(target). \(outcome)")
+            .accessibilityAction(named: Text("Celebrate with your companion")) { playback.scene.celebrate() }
+
+            if completed && !reduceMotion && !playback.sceneUnavailable {
+                Text("Tap the stage to give your companion a cheer.")
+                    .font(.caption).foregroundStyle(Theme.grey)
+                    .multilineTextAlignment(.center)
+                    .accessibilityHidden(true)
+            }
 
             VStack(spacing: 14) {
                 Text(completed || reduceMotion ? outcome : "Your companion puts the idea to work…")
@@ -91,20 +107,25 @@ struct CutSceneView: View {
     var body: some View {
         ScrollView { sceneContent }
         .background(PaperPageBackground())
-        .task {
-            start = Date()
-            if reduceMotion { completed = true; return }
-            do {
-                try await Task.sleep(for: .seconds(duration))
-                guard !Task.isCancelled else { return }
-                completed = true
-            } catch {
-                // Dismissal cancels the task; it must not update a later presentation.
-            }
+        .onAppear {
+            playback.start(item: item, color: color, action: action, target: target,
+                           region: region, reduceMotion: reduceMotion)
         }
+        .onDisappear { playback.stop() }
         .onChange(of: reduceMotion) { _, reduced in
-            if reduced { completed = true }
+            if reduced { playback.finishWithoutMotion() }
         }
+    }
+
+    // Enable with the launch argument -PaperTheatreDiagnostics in a Debug build. Production
+    // never shows diagnostic UI, while device profiling can inspect FPS, draw and node counts.
+    private static var diagnostics: SpriteView.DebugOptions {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-PaperTheatreDiagnostics") ?
+            [.showsFPS, .showsNodeCount, .showsDrawCount, .showsPhysics] : []
+        #else
+        []
+        #endif
     }
 
     private var actionCaption: String {
@@ -119,84 +140,6 @@ struct CutSceneView: View {
         case .solve: return "Your invention finds a way through."
         case .explore: return "Your companion follows a new possibility."
         }
-    }
-
-    private func draw(_ context: GraphicsContext, time: Double) {
-        let appear = eased(time, from: 0.15, to: 0.85)
-        let act = eased(time, from: 1.05, to: 2.55)
-        let resolve = eased(time, from: 1.8, to: 3.15)
-        let settle = eased(time, from: 2.75, to: 3.75)
-        let crossing = sceneTarget == .gap && [.build, .fly, .explore, .grow, .solve].contains(action)
-        let heroTravel = crossing ? eased(time, from: 2.3, to: 3.85) :
-            (action == .give || action == .explore ? act * 0.45 : 0)
-        let heroX = 180 + 261 * heroTravel
-        let heroY = crossing && action == .fly ? 266 - sin(heroTravel * .pi) * 71 : 267
-        let breathe = completed || reduceMotion ? 0 : sin(time * 2) * 1.2
-
-        PaperTheatreArt.target(context, kind: sceneTarget, progress: resolve,
-                              center: CGPoint(x: 449, y: 261), scale: 0.9)
-        PaperTheatreArt.companion(context, center: CGPoint(x: heroX, y: heroY + breathe),
-                                  scale: 0.82, vitality: 0.95, time: time + 1,
-                                  celebrate: resolve > 0.8, still: completed || reduceMotion)
-        guard appear > 0 else { return }
-
-        let point: CGPoint
-        var angle: Double = 0
-        var scale = CGFloat(appear) * 0.78
-        switch action {
-        case .strike:
-            // Anticipation first, one clean swing, then a short return to rest.
-            let windup = eased(time, from: 0.7, to: 1.05)
-            point = CGPoint(x: 264 - 14 * windup + 151 * act - 46 * settle,
-                            y: 203 - sin(act * .pi) * 40 + 9 * settle)
-            angle = -36 * windup + 75 * act - 22 * settle
-        case .build:
-            point = CGPoint(x: 330, y: 226 - 5 * settle)
-            angle = -9 * (1 - act)
-            // Three cut paper parts join the silhouette and then stop moving.
-            if act < 1 {
-                for index in 0..<3 {
-                    let offset = CGFloat(index - 1) * 42 * CGFloat(1 - act)
-                    let part = PaperTheatreArt.local(context, at: CGPoint(x: 330 + offset, y: 179 + CGFloat(act * 35)), angle: Double(index - 1) * 20 * (1 - act))
-                    PaperTheatreArt.paper(part, PaperTheatreArt.polygon([(-8, -6), (8, -6), (7, 7), (-7, 6)]),
-                                          color: color.opacity(1 - act), shadow: 1)
-                }
-            }
-        case .transform:
-            point = CGPoint(x: 317 + act * 76, y: 193 - sin(act * .pi) * 28)
-            angle = -18 + act * 31
-            scale *= 1 + CGFloat(sin(act * .pi)) * 0.18
-        case .summon:
-            point = CGPoint(x: 327, y: 233 - 41 * appear + 5 * settle)
-            angle = -8 * (1 - appear)
-        case .fly:
-            point = CGPoint(x: 245 + 195 * act, y: 183 - sin(act * .pi) * 52 + 15 * settle)
-            angle = -12 + 21 * act - 6 * settle
-            PaperTheatreArt.line(context, [(CGFloat(heroX + 24), CGFloat(heroY - 47)), (point.x, point.y + 19)],
-                                 color: PaperTheatreArt.earth, width: 1, opacity: 0.65)
-        case .grow:
-            point = CGPoint(x: 329, y: 231)
-            scale *= 0.6 + CGFloat(act) * 0.6
-        case .give:
-            point = CGPoint(x: 242 + act * 158, y: 211 - sin(act * .pi) * 19 + settle * 11)
-            angle = -12 * (1 - act)
-        case .solve:
-            point = CGPoint(x: 253 + act * 152 - settle * 33, y: 208 - sin(act * .pi) * 10)
-            angle = 46 * eased(time, from: 1.75, to: 2.45) - settle * 21
-        case .explore:
-            point = CGPoint(x: 273 + act * 74, y: 207 - sin(act * .pi) * 14)
-            angle = act * 9
-        }
-        PaperTheatreArt.invention(context, kind: invention, center: point, scale: scale,
-                                  color: color, progress: act, angle: angle)
-        if !reduceMotion {
-            PaperTheatreArt.flourish(context, center: CGPoint(x: 416, y: 153), elapsed: time - 2.8)
-        }
-    }
-
-    private func eased(_ time: Double, from start: Double, to end: Double) -> Double {
-        let value = max(0, min(1, (time - start) / (end - start)))
-        return value * value * (3 - 2 * value)
     }
 
     static func color(_ name: String) -> Color {

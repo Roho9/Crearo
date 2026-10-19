@@ -104,6 +104,13 @@ private struct ResultPanel: View {
                             .lineSpacing(3)
                             .foregroundStyle(Theme.ink)
                             .fixedSize(horizontal: false, vertical: true)
+                        if outcome.usesOnDeviceCoaching {
+                            Label("On-device idea coach. Your numeric score is still a local practice estimate.",
+                                  systemImage: "iphone")
+                                .font(.footnote)
+                                .foregroundStyle(Theme.grey)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }

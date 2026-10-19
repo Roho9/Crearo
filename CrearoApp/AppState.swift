@@ -33,6 +33,7 @@ struct ChallengeOutcome: Identifiable {
     var answer: String = ""
     var feedbackEvidence: [String] = []
     var region: ChallengeRegion = .prism
+    var usesOnDeviceCoaching: Bool = false
 }
 
 @MainActor
@@ -53,10 +54,12 @@ final class AppState {
     var toast: String?
 
     private let engine = GameEngine()
+    @ObservationIgnored private let ideaCoach: OnDeviceIdeaCoach?
     @ObservationIgnored private var draftSaveTask: Task<Void, Never>?
 
-    init(services: AppServices = .live()) {
+    init(services: AppServices = .live(), ideaCoach: OnDeviceIdeaCoach? = .shared) {
         self.services = services
+        self.ideaCoach = ideaCoach
     }
 
     var hasGame: Bool { worldState != nil }
@@ -95,8 +98,11 @@ final class AppState {
     /// Backgrounding flushes the latest text without waiting for the typing debounce.
     func flushChallengeDrafts() async {
         draftSaveTask?.cancel()
+        await ideaCoach?.suspend()
         await persist()
     }
+
+    func prepareIdeaCoach() async { await ideaCoach?.prewarm() }
 
     // MARK: Lifecycle
 
@@ -133,6 +139,7 @@ final class AppState {
         draftSaveTask?.cancel()
         // Invalidate pending judgments before awaiting storage, so they cannot restore this world.
         worldState = nil
+        await ideaCoach?.suspend()
         latestProphecy = nil
         latestCompanionLine = nil
         lastForged = nil
@@ -257,6 +264,15 @@ final class AppState {
         let ai = await StoryDirector.direct(level: level, answer: trimmed, companion: companion,
                                             previousStory: Array(initialWorld.storyLog.suffix(3)),
                                             apiKey: Secrets.anthropicAPIKey)
+        guard !Task.isCancelled, worldState?.character.id == initialWorld.character.id else { return nil }
+        // Device-local wording and scene cues are optional. Their response has no grade or reward
+        // authority, and is never sent to the existing explicitly configured remote judge.
+        let deviceFeedback: OnDeviceIdeaFeedback?
+        if ai == nil, let ideaCoach {
+            deviceFeedback = await ideaCoach.feedback(level: level, answer: trimmed)
+        } else {
+            deviceFeedback = nil
+        }
         guard !Task.isCancelled, var ws = worldState,
               ws.character.id == initialWorld.character.id,
               ChallengeProgression.canAttempt(ws, level: level.level, day: level.id,
@@ -276,7 +292,18 @@ final class AppState {
         let graded = CreativityRubric.default.evaluate(raw)
         let passed = LevelGate.passes(score: graded.total, level: level.level)
 
-        let scene = ai ?? StoryDirector.offlineScene(answer: trimmed, companion: companion, level: level)
+        let scene: AIDirection
+        if let ai {
+            scene = ai
+        } else if let feedback = deviceFeedback {
+            scene = AIDirection(item: feedback.item, color: feedback.color, action: feedback.action,
+                target: level.sceneTarget,
+                outcome: "\(companion) tests \(feedback.item) at \(level.sceneTarget).",
+                storyBeat: "In \(level.region.title), \(companion) puts \(feedback.item) to work at \(level.sceneTarget). The invention joins your journal.",
+                coaching: feedback.strength + "\n\n" + feedback.nextStep, scores: raw)
+        } else {
+            scene = StoryDirector.offlineScene(answer: trimmed, companion: companion, level: level)
+        }
         let disposition = ChallengeProgression.record(
             into: &ws, level: level.level, day: level.id,
             currentDay: ChallengeProvider.dayKey(), score: graded.total, storyBeat: scene.storyBeat)
@@ -302,7 +329,10 @@ final class AppState {
         await persist()
         guard !Task.isCancelled, worldState?.character.id == initialWorld.character.id else { return nil }
 
-        let coaching = practice?.coaching ?? (scene.coaching.isEmpty ? level.revisionPrompt : scene.coaching)
+        let coaching = deviceFeedback != nil ? scene.coaching
+            : practice?.coaching ?? (scene.coaching.isEmpty ? level.revisionPrompt : scene.coaching)
+        var evidence = practice?.evidence ?? []
+        if let feedback = deviceFeedback { evidence.append("From your idea: “\(feedback.evidenceQuote)”") }
         let spec = SceneSpec(item: scene.item, colorName: scene.color,
                              action: SceneAction.from(scene.action), target: scene.target,
                              outcomeCaption: passed ? scene.outcome : "An idea to refine. The challenge is still open.")
@@ -312,7 +342,8 @@ final class AppState {
                                 storyBeat: passed ? scene.storyBeat : "The challenge is still open. Revise this idea and try it again.",
                                 scene: spec,
                                 streak: ws.streak, advanced: advanced, isPracticeEstimate: ai == nil,
-                                answer: trimmed, feedbackEvidence: practice?.evidence ?? [], region: level.region)
+                                answer: trimmed, feedbackEvidence: evidence, region: level.region,
+                                usesOnDeviceCoaching: deviceFeedback != nil)
     }
 
     /// The personalized final boss preview, generated from the current profile (GDD §50).
