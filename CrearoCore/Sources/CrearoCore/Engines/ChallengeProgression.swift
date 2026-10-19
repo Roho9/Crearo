@@ -1,7 +1,7 @@
 import Foundation
 
 /// Resolves an evaluated challenge against the current save before any rewards are applied.
-/// Callers may reward only `.cleared`; retries can update a personal best but never consume a day.
+/// Callers may reward only `.cleared`; retries can update a personal best without advancing.
 public enum ChallengeAttemptDisposition: Equatable, Sendable {
     case unavailable
     case retry
@@ -11,7 +11,7 @@ public enum ChallengeAttemptDisposition: Equatable, Sendable {
 public enum ChallengeProgression {
     public static func canAttempt(_ world: WorldState, level: Int, day: String,
                                   currentDay: String) -> Bool {
-        level == world.level && day == currentDay && world.lastChallengeDay != day
+        level == world.level && day == currentDay
     }
 
     /// Synchronous commit of the progression fields. A stale, repeated or failed answer cannot
@@ -27,7 +27,11 @@ public enum ChallengeProgression {
         world.bestScore = max(world.bestScore, boundedScore)
         guard LevelGate.passes(score: boundedScore, level: level) else { return .retry }
 
-        world.streak = isConsecutive(world.lastChallengeDay, before: day) ? world.streak + 1 : 1
+        // Chapters are playable at the player's pace. A streak counts days, never chapters:
+        // clearing several chapters today must not inflate it or restart an existing streak.
+        if world.lastChallengeDay != day {
+            world.streak = isConsecutive(world.lastChallengeDay, before: day) ? world.streak + 1 : 1
+        }
         world.lastChallengeDay = day
         world.level += 1
         world.totalPoints += boundedScore

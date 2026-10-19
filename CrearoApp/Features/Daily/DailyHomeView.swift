@@ -11,20 +11,22 @@ struct DailyHomeView: View {
     @State private var showStory = false
     @State private var submissionNote: String?
     @State private var focusDraftAfterResult = false
+    @State private var draftLevel: Int?
+    @State private var showHint = false
     @FocusState private var answerFocused: Bool
 
     private var hasAnswer: Bool {
         !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+    private var exceedsAnswerLimit: Bool { answer.count > AppState.maximumChallengeLength }
 
     var body: some View {
         let challenge = app.todaysChallenge
         let vitality = app.worldState?.companion.brightness ?? 0.3
-        let done = app.hasDoneToday
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    chapterHeader(challenge, completedToday: done)
+                    chapterHeader(challenge)
 
                     PaperTheatreStageView(levelTitle: challenge.title, vitality: vitality)
                         .frame(height: 220)
@@ -34,11 +36,7 @@ struct DailyHomeView: View {
                                 .strokeBorder(Theme.edge.opacity(0.65), lineWidth: 1)
                         }
 
-                    if done {
-                        clearedToday(nextLevel: challenge)
-                    } else {
-                        levelPrompt(challenge)
-                    }
+                    levelPrompt(challenge)
 
                     progressFootnote
                 }
@@ -70,7 +68,7 @@ struct DailyHomeView: View {
             }
             .tint(Theme.ink)
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if !done { submitBar(challenge) }
+                submitBar(challenge)
             }
             .fullScreenCover(item: $outcome, onDismiss: {
                 if focusDraftAfterResult {
@@ -79,25 +77,39 @@ struct DailyHomeView: View {
                 }
             }) { result in
                 OutcomeView(outcome: result,
-                            onRetry: { focusDraftAfterResult = true },
-                            onDone: { answer = "" })
+                            onRetry: { focusDraftAfterResult = true })
             }
             .sheet(isPresented: $showGrowth) { GrowthView() }
             .sheet(isPresented: $showStory) { StoryView() }
+            .task(id: challenge.level) {
+                // Loading a chapter never saves the previous chapter's text under its new key.
+                draftLevel = challenge.level
+                answer = app.challengeDraft(forLevel: challenge.level)
+                showHint = false
+                submissionNote = nil
+            }
+            .onChange(of: answer) { _, value in
+                guard draftLevel == challenge.level,
+                      value != app.challengeDraft(forLevel: challenge.level) else { return }
+                app.saveChallengeDraft(value, forLevel: challenge.level)
+            }
         }
     }
 
-    private func chapterHeader(_ challenge: DailyChallenge, completedToday: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(completedToday ? "TOMORROW'S CHAPTER" : "CHAPTER \(challenge.level)")
+    private func chapterHeader(_ challenge: DailyChallenge) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("\(challenge.region.title) · \(challenge.regionIndex) of \(challenge.regionCount)")
                 .font(.caption.weight(.semibold))
-                .tracking(1.4)
-                .foregroundStyle(Theme.grey)
+                .foregroundStyle(Theme.moss)
+                .fixedSize(horizontal: false, vertical: true)
             Text(challenge.title)
                 .font(Theme.title)
                 .foregroundStyle(Theme.ink)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
+            Text("Chapter \(challenge.level) · Make your own way through")
+                .font(.footnote)
+                .foregroundStyle(Theme.grey)
         }
     }
 
@@ -123,6 +135,19 @@ struct DailyHomeView: View {
                 .background(Theme.moss.opacity(0.08), in: RoundedRectangle(cornerRadius: 13))
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("Your goal: \(challenge.goal)")
+
+                if !challenge.constraint.isEmpty {
+                    Label {
+                        Text(challenge.constraint)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } icon: {
+                        Image(systemName: "paperclip").accessibilityHidden(true)
+                    }
+                    .font(.callout)
+                    .foregroundStyle(Theme.ink)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Creative constraint: \(challenge.constraint)")
+                }
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -148,13 +173,52 @@ struct DailyHomeView: View {
                             .strokeBorder(answerFocused ? Theme.sky : .clear, lineWidth: 2)
                     }
                     .focused($answerFocused)
+                    .disabled(submitting || app.isWorking)
                     .textInputAutocapitalization(.sentences)
                     .accessibilityLabel("Your idea")
                     .accessibilityHint("Describe your invention and how it solves the challenge.")
 
-                Text("Give your idea a twist, then explain how it works.")
+                Label(hasAnswer ? "Draft kept on this device" : "Your draft will stay with this chapter",
+                      systemImage: "square.and.pencil")
                     .font(.footnote)
                     .foregroundStyle(Theme.grey)
+
+                if exceedsAnswerLimit {
+                    Text("Keep your idea within \(AppState.maximumChallengeLength.formatted()) characters before submitting. Your full draft is still saved.")
+                        .font(.footnote)
+                        .foregroundStyle(Theme.ember)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
+
+                DisclosureGroup(isExpanded: $showHint) {
+                    Text(challenge.hint)
+                        .font(Theme.body)
+                        .lineSpacing(3)
+                        .foregroundStyle(Theme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+                } label: {
+                    Label("Find another angle", systemImage: "lightbulb")
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(Theme.moss)
+                        .frame(minHeight: 44)
+                }
+                .tint(Theme.moss)
+                .accessibilityHint("Reveal a question to help you explore a different approach.")
+            }
+
+            if app.isLocalPractice {
+                Label {
+                    Text("Practice feedback looks for written clues about your goal and how your idea works. You can revise as often as you like.")
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "leaf").accessibilityHidden(true)
+                }
+                .font(.footnote)
+                .foregroundStyle(Theme.grey)
+                .accessibilityElement(children: .combine)
             }
 
             if let submissionNote {
@@ -169,12 +233,14 @@ struct DailyHomeView: View {
     private func submitBar(_ challenge: DailyChallenge) -> some View {
         VStack(spacing: 9) {
             Button {
-                guard hasAnswer, !submitting else { return }
+                guard hasAnswer, !exceedsAnswerLimit, !submitting, !app.isWorking,
+                      draftLevel == challenge.level else { return }
+                let submittedAnswer = answer
                 answerFocused = false
                 submitting = true
                 submissionNote = nil
                 Task {
-                    outcome = await app.submitChallenge(challenge, answer: answer)
+                    outcome = await app.submitChallenge(challenge, answer: submittedAnswer)
                     submitting = false
                     if outcome == nil {
                         submissionNote = "Your idea is still here. Please try again."
@@ -187,7 +253,7 @@ struct DailyHomeView: View {
                 }
             }
             .buttonStyle(PaperPrimaryButtonStyle())
-            .disabled(!hasAnswer || submitting)
+            .disabled(!hasAnswer || exceedsAnswerLimit || submitting || app.isWorking || draftLevel != challenge.level)
             .accessibilityHint("Receive a score and feedback for this chapter.")
 
             Text("Reach \(challenge.passMark) / 100 to clear this chapter. You can refine and retry.")
@@ -206,28 +272,6 @@ struct DailyHomeView: View {
         }
         .overlay(alignment: .top) {
             Rectangle().fill(Theme.edge.opacity(0.45)).frame(height: 1)
-        }
-    }
-
-    private func clearedToday(nextLevel challenge: DailyChallenge) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HearthCard {
-                VStack(alignment: .leading, spacing: 10) {
-                    Label("A chapter made by you", systemImage: "checkmark.seal")
-                        .font(.headline)
-                        .foregroundStyle(Theme.moss)
-                    Text("Your idea brought a little more of Prism to life. The next chapter opens tomorrow: Level \(challenge.level), \(challenge.title).")
-                        .font(Theme.body)
-                        .foregroundStyle(Theme.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            Button { showStory = true } label: {
-                Label("Open my story journal", systemImage: "book.closed")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(PaperSecondaryButtonStyle())
         }
     }
 
@@ -260,19 +304,22 @@ struct StoryView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     let beats = app.worldState?.storyLog ?? []
-                    if beats.isEmpty {
+                    let entries = app.worldState?.challengeHistory ?? []
+                    // New entries also append a story beat. Keep earlier saves' unarchived pages.
+                    let earlierBeats = Array(beats.prefix(max(0, beats.count - entries.count)))
+                    if beats.isEmpty && entries.isEmpty {
                         HearthCard {
                             VStack(alignment: .leading, spacing: 10) {
                                 Text("The first page is yours")
                                     .font(Theme.heading).foregroundStyle(Theme.ink)
-                                Text("Try today's challenge to begin the story. Every chapter you clear adds a moment made from your imagination.")
+                                Text("Try a challenge to begin the story. Every chapter you clear keeps your invention and adds a moment made from your imagination.")
                                     .font(Theme.body).foregroundStyle(Theme.grey)
                             }
                         }
                     } else {
                         Text("A world shaped by your ideas.")
                             .font(Theme.body).foregroundStyle(Theme.grey)
-                        ForEach(Array(beats.enumerated()), id: \.offset) { index, beat in
+                        ForEach(Array(earlierBeats.enumerated()), id: \.offset) { index, beat in
                             HearthCard {
                                 VStack(alignment: .leading, spacing: 10) {
                                     Text("CHAPTER \(index + 1)")
@@ -286,6 +333,9 @@ struct StoryView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             }
                             .accessibilityElement(children: .combine)
+                        }
+                        ForEach(entries, id: \.id) { entry in
+                            journalEntry(entry)
                         }
                     }
                 }
@@ -302,6 +352,45 @@ struct StoryView: View {
                 }
             }
             .tint(Theme.ink)
+        }
+    }
+
+    private func journalEntry(_ entry: ChallengeJournalEntry) -> some View {
+        HearthCard {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("CHAPTER \(entry.level)")
+                        .font(.caption.weight(.semibold))
+                        .tracking(1.2).foregroundStyle(Theme.moss)
+                    Text(entry.title)
+                        .font(Theme.heading).foregroundStyle(Theme.ink)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(entry.createdAt, style: .date)
+                        .font(.footnote).foregroundStyle(Theme.grey)
+                }
+                Text(entry.answer)
+                    .font(Theme.body).lineSpacing(3)
+                    .foregroundStyle(Theme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                Label("\(entry.isPracticeEstimate ? "Practice estimate" : "Feedback score") · \(entry.score) / 100",
+                      systemImage: "sparkle")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(Theme.moss)
+                Text(entry.storyBeat)
+                    .font(.callout).lineSpacing(3)
+                    .foregroundStyle(Theme.grey)
+                    .fixedSize(horizontal: false, vertical: true)
+                ShareLink(item: ChallengeShareText.make(level: entry.level, title: entry.title,
+                                                       answer: entry.answer, score: entry.score,
+                                                       isPracticeEstimate: entry.isPracticeEstimate)) {
+                    Label("Share this invention", systemImage: "square.and.arrow.up")
+                        .frame(maxWidth: .infinity, minHeight: 24)
+                }
+                .buttonStyle(PaperSecondaryButtonStyle())
+                .accessibilityHint("Choose who receives your invention and its locally saved score.")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

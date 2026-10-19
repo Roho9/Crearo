@@ -22,7 +22,7 @@ final class ChallengeProgressionTests: XCTestCase {
         XCTAssertTrue(ChallengeProgression.canAttempt(world, level: 1, day: today, currentDay: today))
     }
 
-    func testClearIsAcceptedOnlyOnceAndRepeatedAttemptCannotMutateSave() {
+    func testClearIsAcceptedOnlyOnceAndNextChapterCanOpenToday() {
         var world = WorldState.newGame(characterName: "Wren", companionName: "Kindle")
         XCTAssertEqual(ChallengeProgression.record(into: &world, level: 1, day: today,
                                                   currentDay: today, score: 85, storyBeat: "The bridge opens"), .cleared)
@@ -35,8 +35,11 @@ final class ChallengeProgressionTests: XCTestCase {
                                                   currentDay: today, score: 100, storyBeat: "Duplicate"), .unavailable)
         XCTAssertEqual(world, cleared)
         XCTAssertEqual(ChallengeProgression.record(into: &world, level: 2, day: today,
-                                                  currentDay: today, score: 100, storyBeat: "Second today"), .unavailable)
-        XCTAssertEqual(world, cleared)
+                                                  currentDay: today, score: 100, storyBeat: "Second today"), .cleared)
+        XCTAssertEqual(world.level, 3)
+        XCTAssertEqual(world.totalPoints, 185)
+        XCTAssertEqual(world.streak, 1, "A streak counts days, not chapters.")
+        XCTAssertEqual(world.storyLog, ["The bridge opens", "Second today"])
     }
 
     func testStaleDayAndLevelCannotMutateSave() {
@@ -56,7 +59,10 @@ final class ChallengeProgressionTests: XCTestCase {
         XCTAssertEqual(ChallengeProgression.record(into: &world, level: 1, day: today,
                                                   currentDay: today, score: 80, storyBeat: "New day"), .cleared)
         XCTAssertEqual(world.streak, 4)
-        XCTAssertEqual(ChallengeProgression.record(into: &world, level: 2, day: "2026-10-02",
+        XCTAssertEqual(ChallengeProgression.record(into: &world, level: 2, day: today,
+                                                  currentDay: today, score: 80, storyBeat: "Keep making"), .cleared)
+        XCTAssertEqual(world.streak, 4)
+        XCTAssertEqual(ChallengeProgression.record(into: &world, level: 3, day: "2026-10-02",
                                                   currentDay: "2026-10-02", score: 80, storyBeat: "Return"), .cleared)
         XCTAssertEqual(world.streak, 1)
     }

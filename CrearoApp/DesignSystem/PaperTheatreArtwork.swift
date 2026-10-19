@@ -1,4 +1,5 @@
 import SwiftUI
+import CrearoCore
 
 /// A few fixed printing flecks and paper fibres. Geometry is generated once, not on every frame.
 /// Texture is an overlay, so text and controls can keep their clean, high-contrast surfaces.
@@ -44,16 +45,18 @@ struct PaperTheatreStageView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
-    private var target: PaperSceneTarget { .from(levelTitle) }
+    private var chapter: DailyChallenge? { ChallengeProvider.allContent.first { $0.title == levelTitle } }
+    private var target: PaperSceneTarget { .from(chapter?.sceneTarget ?? levelTitle) }
+    private var region: ChallengeRegion { chapter?.region ?? .prism }
 
     var body: some View {
         ZStack {
             Canvas { context, size in
                 let context = PaperTheatreArt.stageContext(context, size: size)
-                PaperTheatreArt.landscape(context, target: target)
+                PaperTheatreArt.landscape(context, target: target, region: region)
                 PaperTheatreArt.target(context, kind: target, progress: celebrate ? 1 : 0,
                                        center: CGPoint(x: 430, y: 260), scale: 0.92)
-                PaperTheatreArt.foreground(context)
+                PaperTheatreArt.foreground(context, region: region)
             }
             TimelineView(.animation(minimumInterval: 1.0 / 30,
                                     paused: reduceMotion || scenePhase != .active)) { timeline in
@@ -74,15 +77,24 @@ struct PaperTheatreStageView: View {
                 .strokeBorder(Theme.ink.opacity(0.12), lineWidth: 1)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Paper theatre. \(levelTitle). Your companion \(celebrate ? "celebrates" : "waits") beside \(target.description).")
+        .accessibilityLabel("Paper theatre in \(region.title). \(levelTitle). Your companion \(celebrate ? "celebrates" : "waits") beside \(target.description).")
     }
 }
 
 enum PaperSceneTarget {
     case gap, tree, vines, door, creature, pond, cave, giant, statue, pedestal
+    case picnic, gate, stall, boat, map, lighthouse, balloons
 
     static func from(_ text: String) -> Self {
         let text = text.lowercased()
+        if text.contains("lighthouse") { return .lighthouse }
+        if text.contains("boat") { return .boat }
+        if text.contains("map") { return .map }
+        if text.contains("balloon animals") || text.contains("low arch") { return .balloons }
+        if ["stall", "market deliveries", "waiting line"].contains(where: text.contains) { return .stall }
+        if text.contains("gate") { return .gate }
+        if ["picnic", "benches"].contains(where: text.contains) { return .picnic }
+        if text.contains("parade") || text.contains("visitor") { return .creature }
         // These chapter names don't contain the pictured obstacle. A bridge keeper is the
         // character receiving the invention, rather than the canyon used in the crossing level.
         if ["long list", "color thief", "colour thief", "keeper"].contains(where: text.contains) { return .creature }
@@ -110,6 +122,13 @@ enum PaperSceneTarget {
         case .giant: return "a sleepy gentle giant"
         case .statue: return "a quiet folded statue"
         case .pedestal: return "a little stage for a new idea"
+        case .picnic: return "a folded picnic blanket and little benches"
+        case .gate: return "a tiny garden gate"
+        case .stall: return "a striped market stall"
+        case .boat: return "a folded paper boat"
+        case .map: return "a creased harbor map"
+        case .lighthouse: return "a little striped lighthouse"
+        case .balloons: return "a group of paper balloon animals"
         }
     }
 }
@@ -195,7 +214,14 @@ enum PaperTheatreArt {
         return context
     }
 
-    static func landscape(_ context: GraphicsContext, target: PaperSceneTarget) {
+    static func landscape(_ context: GraphicsContext, target: PaperSceneTarget,
+                          region: ChallengeRegion = .prism) {
+        switch region {
+        case .pocketPark: parkLandscape(context); return
+        case .ribbonMarket: marketLandscape(context); return
+        case .paperHarbor: harborLandscape(context, target: target); return
+        case .prism: break
+        }
         context.fill(Path(CGRect(x: 0, y: 0, width: 600, height: 320)), with: .color(cream))
         paper(context, polygon([(0, 0), (600, 0), (600, 221), (0, 223)]),
               color: paleSky, shadow: 0, edge: false)
@@ -239,6 +265,117 @@ enum PaperTheatreArt {
         }
     }
 
+    private static func regionSky(_ context: GraphicsContext, color: Color, sunAt: CGPoint) {
+        context.fill(Path(CGRect(x: 0, y: 0, width: 600, height: 320)), with: .color(cream))
+        paper(context, polygon([(0, 0), (600, 0), (600, 234), (0, 221)]), color: color, shadow: 0, edge: false)
+        paper(context, Path(ellipseIn: CGRect(x: sunAt.x, y: sunAt.y, width: 54, height: 54)),
+              color: gold, shadow: 0, edge: false)
+        context.stroke(Path(ellipseIn: CGRect(x: sunAt.x - 3, y: sunAt.y + 2, width: 56, height: 54)),
+                       with: .color(clay.opacity(0.35)), lineWidth: 0.9)
+    }
+
+    /// Broad leaf cutouts, a hand-stitched path and low picnic furniture give the park its scale.
+    private static func parkLandscape(_ context: GraphicsContext) {
+        regionSky(context, color: Color(red: 0.89, green: 0.89, blue: 0.72), sunAt: CGPoint(x: 302, y: 31))
+        cloud(context, center: CGPoint(x: 223, y: 96), scale: 0.6)
+        paper(context, polygon([(-5, 216), (68, 184), (158, 198), (253, 179), (358, 201),
+                                (467, 181), (605, 209), (605, 321), (-5, 321)]), color: distantHill, shadow: 3)
+        paper(context, polygon([(-5, 256), (81, 230), (171, 245), (271, 222), (371, 242),
+                                (482, 225), (605, 249), (605, 321), (-5, 321)]), color: cream, shadow: 4)
+        paper(context, polygon([(205, 320), (349, 320), (304, 275), (318, 234), (287, 223),
+                                (278, 274)]), color: gold.opacity(0.3), shadow: 0, edge: false)
+
+        paper(context, polygon([(19, 231), (30, 114), (54, 33), (67, 18), (56, 122), (41, 236)]), color: earth, shadow: 2)
+        paper(context, polygon([(-8, 51), (31, 14), (106, 18), (146, 51), (118, 92),
+                                (59, 119), (3, 100), (-8, 78)]), color: Theme.moss, shadow: 4)
+        paper(context, polygon([(47, 20), (110, 24), (145, 51), (94, 72), (56, 111)]), color: middleHill, shadow: 1)
+        line(context, [(5, 62), (78, 53), (126, 42)], color: cream, width: 1, opacity: 0.32)
+        paper(context, polygon([(465, -5), (503, 29), (529, 89), (553, 105), (589, 93),
+                                (610, 56), (610, -5)]), color: middleHill, shadow: 3)
+        line(context, [(504, 9), (540, 57), (581, 73)], color: cream, width: 1.1, opacity: 0.4)
+        paper(context, polygon([(513, 40), (472, 59), (459, 92), (502, 94), (531, 73)]), color: Theme.moss, shadow: 2)
+
+        // A low bench behind the path and a little sewn leaf flag, rather than another generic hill.
+        paper(context, polygon([(77, 228), (137, 226), (146, 234), (73, 237)]), color: clay, shadow: 2)
+        line(context, [(83, 237), (80, 250), (86, 250)], color: earth, width: 3)
+        line(context, [(132, 236), (136, 249)], color: earth, width: 3)
+        line(context, [(349, 220), (349, 183)], color: earth, width: 1.5)
+        paper(context, polygon([(350, 183), (372, 188), (359, 198), (350, 196)]), color: clay, shadow: 1)
+        for index in 0..<8 {
+            let x = CGFloat(63 + index * 61), y = CGFloat(282 + index % 2 * 12)
+            line(context, [(x, y), (x + 7, y - 2)], color: earth, width: 0.8, opacity: 0.25)
+        }
+    }
+
+    /// Overlapping shop fronts, cloth strips and a tiled square make a small lively market.
+    private static func marketLandscape(_ context: GraphicsContext) {
+        regionSky(context, color: Color(red: 0.94, green: 0.82, blue: 0.66), sunAt: CGPoint(x: 485, y: 28))
+        paper(context, polygon([(-8, 210), (-8, 99), (95, 85), (112, 218)]), color: clay.opacity(0.75), shadow: 3)
+        paper(context, polygon([(80, 217), (91, 127), (219, 110), (228, 223)]), color: gold.opacity(0.62), shadow: 3)
+        paper(context, polygon([(228, 223), (239, 101), (339, 111), (352, 224)]), color: earth.opacity(0.5), shadow: 3)
+        for index in 0..<4 {
+            let x = CGFloat(12 + index * 78)
+            paper(context, polygon([(x, 161), (x + 31, 158), (x + 32, 192), (x + 2, 194)]),
+                  color: cream.opacity(0.65), shadow: 1)
+            line(context, [(x + 15, 162), (x + 17, 191)], color: earth, width: 1, opacity: 0.35)
+        }
+        line(context, [(-5, 56), (162, 91), (362, 66), (605, 105)], color: earth, width: 1.1, opacity: 0.7)
+        for index in 0..<11 {
+            let x = CGFloat(5 + index * 57), y = CGFloat(index < 3 ? 59 + index * 11 : 88 - (index - 3) * 2)
+            let ribbonColor: Color = [Theme.ember, cream, Theme.moss, gold][index % 4]
+            paper(context, polygon([(x, y), (x + 16, y + 3), (x + 12, y + 32),
+                                    (x + 5, y + 24), (x - 1, y + 30)]), color: ribbonColor, shadow: 1)
+        }
+        paper(context, polygon([(-5, 239), (139, 229), (278, 236), (434, 227),
+                                (605, 241), (605, 321), (-5, 321)]), color: cream, shadow: 3)
+        for row in 0..<3 {
+            let y = CGFloat(263 + row * 24)
+            line(context, [(0, y), (600, y - 4)], color: earth, width: 0.8, opacity: 0.18)
+            for column in 0..<7 {
+                let x = CGFloat(column * 97 + (row % 2 == 0 ? 20 : 65))
+                line(context, [(x, y - 20), (x - 10, y)], color: earth, width: 0.7, opacity: 0.18)
+            }
+        }
+        paper(context, polygon([(-2, 214), (-2, 137), (62, 131), (69, 216)]), color: earth, shadow: 3)
+        paper(context, polygon([(-5, 131), (61, 125), (77, 148), (-5, 151)]), color: Theme.ember, shadow: 3)
+        paper(context, polygon([(13, 131), (28, 129), (40, 149), (24, 150)]), color: cream, shadow: 0)
+    }
+
+    /// The harbor has a horizontal horizon, a folded shoreline and a wooden jetty above the water.
+    private static func harborLandscape(_ context: GraphicsContext, target: PaperSceneTarget) {
+        let harborBlue = Color(red: 0.43, green: 0.65, blue: 0.69)
+        regionSky(context, color: Color(red: 0.79, green: 0.86, blue: 0.83), sunAt: CGPoint(x: 291, y: 30))
+        cloud(context, center: CGPoint(x: 117, y: 65), scale: 0.65)
+        cloud(context, center: CGPoint(x: 474, y: 52), scale: 0.45)
+        paper(context, polygon([(0, 152), (117, 149), (216, 156), (318, 150),
+                                (431, 155), (600, 148), (600, 321), (0, 321)]), color: harborBlue, shadow: 2)
+        for row in 0..<5 {
+            let y = CGFloat(175 + row * 28)
+            for column in 0..<5 {
+                let x = CGFloat(column * 137 - row * 19)
+                line(context, [(x, y), (x + 34, y - 2), (x + 49, y)], color: cream, width: 1.1, opacity: 0.42)
+            }
+        }
+        paper(context, polygon([(0, 226), (84, 215), (151, 231), (229, 225),
+                                (254, 257), (281, 321), (0, 321)]), color: cream, shadow: 3)
+        paper(context, polygon([(115, 251), (319, 245), (342, 271), (104, 280)]), color: earth, shadow: 4)
+        for index in 0..<7 {
+            let x = CGFloat(127 + index * 29)
+            line(context, [(x, 254), (x - 6, 274)], color: cream, width: 1, opacity: 0.35)
+        }
+        line(context, [(118, 277), (120, 302)], color: earth, width: 7, opacity: 0.95)
+        line(context, [(318, 270), (320, 293)], color: earth, width: 7, opacity: 0.95)
+        if target != .lighthouse {
+            paper(context, polygon([(531, 152), (540, 91), (552, 91), (562, 153)]), color: cream, shadow: 2)
+            paper(context, polygon([(536, 119), (556, 119), (559, 132), (534, 132)]), color: clay, shadow: 0)
+            paper(context, polygon([(537, 91), (536, 80), (556, 78), (558, 91)]), color: earth, shadow: 1)
+            paper(context, polygon([(533, 80), (547, 69), (561, 80)]), color: clay, shadow: 1)
+        }
+        // Distant folded sails stay quiet; the player's invention remains the moving focus.
+        paper(context, polygon([(269, 191), (297, 191), (288, 198), (277, 198)]), color: cream, shadow: 1)
+        paper(context, polygon([(282, 190), (282, 168), (294, 188)]), color: gold, shadow: 1)
+    }
+
     static func cloud(_ context: GraphicsContext, center: CGPoint, scale: CGFloat) {
         let context = local(context, at: center, scale: scale)
         var path = Path()
@@ -251,7 +388,29 @@ enum PaperTheatreArt {
         line(context, [(-27, 3), (-3, 3)], color: earth, width: 0.8, opacity: 0.18)
     }
 
-    static func foreground(_ context: GraphicsContext) {
+    static func foreground(_ context: GraphicsContext, region: ChallengeRegion = .prism) {
+        if region == .ribbonMarket {
+            paper(context, polygon([(-5, 308), (65, 300), (95, 321), (-5, 321)]), color: earth, shadow: 0)
+            for index in 0..<4 {
+                let x = CGFloat(12 + index * 18)
+                paper(context, polygon([(x, 305), (x + 7, 294), (x + 17, 304), (x + 8, 313)]),
+                      color: index.isMultiple(of: 2) ? clay : gold, shadow: 1)
+            }
+            paper(context, polygon([(526, 321), (534, 293), (589, 291), (602, 321)]), color: Theme.ember, shadow: 0)
+            line(context, [(539, 300), (591, 298)], color: cream, width: 1, opacity: 0.5)
+            return
+        }
+        if region == .paperHarbor {
+            paper(context, polygon([(-5, 304), (63, 291), (120, 321), (-5, 321)]), color: earth, shadow: 0)
+            paper(context, polygon([(505, 321), (543, 304), (604, 301), (604, 321)]), color: clay, shadow: 0)
+            for index in 0..<4 {
+                let x = CGFloat(519 + index * 22)
+                line(context, [(x, 314), (x + 10, 310)], color: cream, width: 1.5, opacity: 0.5)
+            }
+            line(context, [(29, 312), (31, 274), (39, 272), (40, 313)], color: earth, width: 5)
+            line(context, [(34, 279), (73, 291), (104, 280)], color: cream, width: 2, opacity: 0.9)
+            return
+        }
         paper(context, polygon([(-5, 307), (29, 293), (55, 302), (79, 298), (114, 321), (-5, 321)]),
               color: Theme.moss, shadow: 0)
         paper(context, polygon([(492, 320), (529, 298), (551, 303), (574, 291), (607, 302), (607, 321)]),
@@ -437,6 +596,103 @@ enum PaperTheatreArt {
             paper(context, polygon([(-43, 0), (-39, -16), (41, -17), (47, 0)]), color: earth)
             companion(context, center: CGPoint(x: 0, y: -18), scale: 0.72,
                       vitality: Double(progress), time: 1, celebrate: progress > 0.5, still: true)
+        case .picnic:
+            let blanket = local(context, at: CGPoint(x: -12 * (1 - progress), y: 0), angle: Double(-7 * (1 - progress)))
+            paper(blanket, polygon([(-88, -31), (43, -47), (92, -8), (-38, 12)]), color: clay, shadow: 3)
+            for index in 0..<5 {
+                let x = CGFloat(-65 + index * 29)
+                line(blanket, [(x, -32), (x + 41, 0)], color: cream, width: 7, opacity: 0.5)
+            }
+            line(blanket, [(-65, -12), (67, -28)], color: cream, width: 6, opacity: 0.5)
+            line(blanket, [(-48, 2), (84, -14)], color: cream, width: 5, opacity: 0.5)
+            paper(blanket, Path(ellipseIn: CGRect(x: -29, y: -33, width: 34, height: 17)), color: cream, shadow: 1)
+            paper(blanket, polygon([(17, -25), (20, -45), (44, -47), (49, -29)]), color: gold, shadow: 2)
+            line(blanket, [(24, -44), (24, -56), (38, -57), (41, -45)], color: earth, width: 1.7)
+            paper(context, polygon([(-72, -70), (-21, -73), (-12, -65), (-74, -61)]), color: earth, shadow: 2)
+            line(context, [(-65, -60), (-67, -39)], color: earth, width: 4)
+            line(context, [(-23, -64), (-20, -43)], color: earth, width: 4)
+        case .gate:
+            for x in [CGFloat(-70), 69] {
+                paper(context, polygon([(x - 8, 4), (x - 7, -104), (x, -113), (x + 8, -103), (x + 8, 4)]), color: cream, shadow: 2)
+            }
+            let opening = CGFloat(1 - progress * 0.76)
+            let gate = local(context, at: CGPoint(x: -60, y: 0))
+            paper(gate, polygon([(0, -12), (0, -91), (119 * opening, -91), (119 * opening, -12)]), color: middleHill, shadow: 2)
+            for index in 1..<5 {
+                let x = CGFloat(index * 24) * opening
+                line(gate, [(x, -87), (x, -16)], color: cream, width: 5 * max(0.4, opening), opacity: 0.75)
+            }
+            line(gate, [(2, -86), (115 * opening, -17)], color: earth, width: 3, opacity: 0.7)
+            paper(context, polygon([(-83, -103), (-77, -121), (-64, -116), (-61, -104)]), color: gold, shadow: 1)
+        case .stall:
+            paper(context, polygon([(-73, 0), (-72, -71), (72, -72), (77, 0)]), color: clay, shadow: 3)
+            paper(context, polygon([(-78, -74), (73, -78), (80, -64), (-75, -61)]), color: cream, shadow: 2)
+            for x in [CGFloat(-69), 65] {
+                line(context, [(x, -71), (x, -139)], color: earth, width: 4, opacity: 0.95)
+            }
+            paper(context, polygon([(-83, -138), (65, -144), (84, -113), (-90, -110)]), color: Theme.ember, shadow: 4)
+            for index in 0..<4 {
+                let x = CGFloat(-64 + index * 39)
+                paper(context, polygon([(x, -137), (x + 16, -138), (x + 29, -113), (x + 9, -112)]), color: cream, shadow: 0)
+            }
+            for index in 0..<3 {
+                let x = CGFloat(-41 + index * 36)
+                paper(context, Path(ellipseIn: CGRect(x: x, y: -85, width: 29, height: 13)), color: gold, shadow: 1)
+                line(context, [(x + 10, -83), (x + 15, -75)], color: earth, width: 1, opacity: 0.5)
+            }
+            paper(context, polygon([(-37, -52), (37, -55), (40, -20), (-34, -17)]), color: cream, shadow: 1)
+            if progress > 0.1 {
+                let sign = local(context, at: CGPoint(x: 2, y: -36), scale: progress)
+                paper(sign, Path(ellipseIn: CGRect(x: -20, y: -8, width: 40, height: 18)), color: gold, shadow: 1)
+                for x in [CGFloat(-10), 0, 10] {
+                    line(sign, [(x, -5), (x + 5, 3)], color: earth, width: 1, opacity: 0.7)
+                }
+            }
+        case .boat:
+            paper(context, polygon([(-93, -22), (-38, -9), (3, -24), (82, -24), (51, 9), (-53, 10)]), color: cream, shadow: 3)
+            paper(context, polygon([(-93, -22), (-53, 10), (3, -6), (-38, -9)]), color: clay, shadow: 0)
+            paper(context, polygon([(3, -6), (51, 9), (82, -24)]), color: gold, shadow: 0)
+            let mastHeight = 53 + progress * 51
+            line(context, [(1, -10), (1, -mastHeight - 14)], color: earth, width: 2)
+            paper(context, polygon([(5, -mastHeight - 7), (59, -27), (5, -27)]), color: cream, shadow: 2)
+            paper(context, polygon([(-4, -mastHeight + 12), (-45, -24), (-4, -24)]), color: Theme.ember, shadow: 2)
+            line(context, [(-75, 19), (-34, 22), (1, 19)], color: cream, width: 1, opacity: 0.6)
+            line(context, [(31, 21), (74, 19)], color: cream, width: 1, opacity: 0.6)
+        case .map:
+            line(context, [(0, -7), (0, -108)], color: earth, width: 5)
+            paper(context, polygon([(-83, -125), (-30, -115), (24, -130), (81, -116), (75, -34),
+                                    (24, -45), (-26, -30), (-80, -43)]), color: cream, shadow: 3)
+            line(context, [(-30, -114), (-26, -33)], color: earth, width: 0.8, opacity: 0.3)
+            line(context, [(24, -127), (24, -46)], color: earth, width: 0.8, opacity: 0.3)
+            line(context, [(-62, -67), (-43, -79), (-15, -64), (13, -92), (56, -75)], color: Theme.sky, width: 5, opacity: 0.8)
+            for (index, x) in [CGFloat(-49), 2, 49].enumerated() {
+                let y = CGFloat(index.isMultiple(of: 2) ? -95 : -65)
+                paper(context, Path(ellipseIn: CGRect(x: x - 9, y: y - 8, width: 19, height: 18)),
+                      color: progress < 0.5 ? Theme.sky : gold, shadow: progress < 0.5 ? 0 : 1)
+            }
+        case .lighthouse:
+            let beam = 155 * (-1 + progress * 2)
+            paper(context, polygon([(0, -135), (beam, -164), (beam, -95)]), color: cream.opacity(0.7), shadow: 0, edge: false)
+            paper(context, polygon([(-34, 0), (-23, -125), (22, -125), (37, 0)]), color: cream, shadow: 3)
+            paper(context, polygon([(-28, -57), (29, -62), (33, -39), (-30, -34)]), color: clay, shadow: 0)
+            paper(context, polygon([(-25, -103), (24, -106), (26, -85), (-26, -81)]), color: clay, shadow: 0)
+            paper(context, polygon([(-31, -126), (-29, -151), (27, -153), (32, -126)]), color: earth, shadow: 2)
+            paper(context, polygon([(-21, -130), (-20, -146), (17, -148), (21, -130)]), color: gold, shadow: 0)
+            paper(context, polygon([(-37, -152), (-2, -178), (37, -154)]), color: Theme.ember, shadow: 3)
+            paper(context, polygon([(-11, 0), (-11, -25), (1, -34), (13, -25), (13, 0)]), color: earth, shadow: 0)
+        case .balloons:
+            line(context, [(-85, 0), (-85, -127), (-63, -148), (65, -148), (86, -126), (86, 0)], color: earth, width: 7)
+            for index in 0..<3 {
+                let x = CGFloat(index * 42 - 42), y = CGFloat(-78 - (index % 2) * 25) + progress * 20
+                let balloonColor: Color = [Theme.ember, gold, Theme.moss][index]
+                line(context, [(x, y + 20), (x + 5, -3)], color: earth, width: 1, opacity: 0.6)
+                paper(context, Path(ellipseIn: CGRect(x: x - 22, y: y - 21, width: 43, height: 40)), color: balloonColor, shadow: 2)
+                paper(context, polygon([(x - 19, y - 11), (x - 24, y - 33), (x - 7, y - 19)]), color: balloonColor, shadow: 1)
+                paper(context, polygon([(x + 9, y - 17), (x + 24, y - 32), (x + 20, y - 6)]), color: balloonColor, shadow: 1)
+                line(context, [(x - 8, y - 2), (x - 4, y + 1)], width: 2, opacity: 0.8)
+                line(context, [(x + 8, y - 2), (x + 4, y + 1)], width: 2, opacity: 0.8)
+                paper(context, polygon([(x - 4, y + 18), (x, y + 25), (x + 5, y + 18)]), color: balloonColor, shadow: 0)
+            }
         case .pedestal:
             paper(context, polygon([(-44, 0), (-36, -27), (33, -31), (47, -1)]), color: earth)
             paper(context, polygon([(-45, -29), (-37, -39), (35, -41), (44, -29), (8, -21)]), color: cream)

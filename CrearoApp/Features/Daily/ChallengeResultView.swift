@@ -21,7 +21,7 @@ struct OutcomeView: View {
             if showScene {
                 CutSceneView(item: outcome.scene.item, colorName: outcome.scene.colorName,
                              action: outcome.scene.action, target: outcome.scene.target,
-                             outcome: outcome.scene.outcomeCaption) {
+                             outcome: outcome.scene.outcomeCaption, region: outcome.region) {
                     withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
                         showScene = false
                     }
@@ -40,6 +40,7 @@ private struct ResultPanel: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var showRubric = false
+    @State private var showAnswer = false
     let outcome: ChallengeOutcome
     var onRetry: () -> Void = {}
     var onDone: () -> Void = {}
@@ -107,8 +108,64 @@ private struct ResultPanel: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
+                if !outcome.answer.isEmpty {
+                    HearthCard {
+                        VStack(alignment: .leading, spacing: 10) {
+                            DisclosureGroup(isExpanded: $showAnswer) {
+                                Text(outcome.answer)
+                                    .font(Theme.body)
+                                    .lineSpacing(3)
+                                    .foregroundStyle(Theme.ink)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .textSelection(.enabled)
+                                    .padding(.top, 10)
+                            } label: {
+                                Text("Your invention")
+                                    .font(.headline)
+                                    .foregroundStyle(Theme.ink)
+                                    .frame(minHeight: 44)
+                            }
+                            .tint(Theme.moss)
+
+                            ShareLink(item: ChallengeShareText.make(level: outcome.level,
+                                                                   title: outcome.levelTitle,
+                                                                   answer: outcome.answer,
+                                                                   score: outcome.rubric.total,
+                                                                   isPracticeEstimate: outcome.isPracticeEstimate)) {
+                                Label("Share my invention & score", systemImage: "square.and.arrow.up")
+                                    .frame(maxWidth: .infinity, minHeight: 24)
+                            }
+                            .buttonStyle(PaperSecondaryButtonStyle())
+                            .accessibilityHint("Choose who receives your submitted idea and its locally saved score.")
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
                 DisclosureGroup(isExpanded: $showRubric) {
                     VStack(alignment: .leading, spacing: 18) {
+                        if outcome.isPracticeEstimate {
+                            Text("Local feedback checks written clues about this challenge. It can miss your intent and cannot verify how original an idea is.")
+                                .font(.footnote)
+                                .foregroundStyle(Theme.grey)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        if !outcome.feedbackEvidence.isEmpty {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text("What the feedback noticed")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(Theme.ink)
+                                ForEach(Array(outcome.feedbackEvidence.enumerated()), id: \.offset) { _, note in
+                                    Label {
+                                        Text(note).fixedSize(horizontal: false, vertical: true)
+                                    } icon: {
+                                        Image(systemName: "text.magnifyingglass").accessibilityHidden(true)
+                                    }
+                                    .font(.footnote)
+                                    .foregroundStyle(Theme.grey)
+                                }
+                            }
+                        }
                         ForEach(RubricCriterion.allCases, id: \.self) { criterion in
                             RubricBar(title: criterion.title, blurb: criterion.blurb,
                                       points: outcome.rubric.points[criterion] ?? 0,
@@ -123,7 +180,7 @@ private struct ResultPanel: View {
                     }
                     .padding(.top, 14)
                 } label: {
-                    Label("How your score works", systemImage: "list.bullet")
+                    Label("How this feedback works", systemImage: "list.bullet")
                         .font(.headline)
                         .foregroundStyle(Theme.ink)
                         .frame(minHeight: 44, alignment: .leading)
@@ -169,13 +226,13 @@ private struct ResultPanel: View {
         .background(PaperPageBackground())
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 9) {
-                Button(outcome.passed ? "Back to my world" : "Refine my idea") {
+                Button(outcome.passed ? "Continue to next chapter" : "Refine my idea") {
                     if outcome.passed { onDone() } else { onRetry() }
                     dismiss()
                 }
                 .buttonStyle(PaperPrimaryButtonStyle())
                 .accessibilityHint(outcome.passed
-                                   ? "Return to your world and journal."
+                                   ? "Open the next challenge. You can keep playing at your own pace."
                                    : "Return to your existing draft. Your idea is kept for you.")
                 if !outcome.passed {
                     Text("Chapter target: \(outcome.passMark) / 100. Your draft is waiting for you.")
@@ -229,7 +286,7 @@ struct ScoreDial: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(isPracticeEstimate ? "PRACTICE SCORE" : "CREATIVITY SCORE")
+            Text(isPracticeEstimate ? "PRACTICE ESTIMATE" : "CREATIVITY SCORE")
                 .font(.caption.weight(.semibold))
                 .tracking(1.1)
                 .foregroundStyle(Theme.grey)
@@ -268,14 +325,14 @@ struct ScoreDial: View {
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(Theme.grey)
             if isPracticeEstimate {
-                Text("Estimated feedback for this attempt.")
+                Text("Local feedback for practice and revision.")
                     .font(.footnote)
                     .foregroundStyle(Theme.grey)
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(isPracticeEstimate ? "Practice score" : "Creativity score")
-        .accessibilityValue("\(total) out of 100. \(band.label). Chapter target: \(passMark) out of 100. \(isPracticeEstimate ? "Estimated feedback for this attempt." : "")")
+        .accessibilityLabel(isPracticeEstimate ? "Practice estimate" : "Creativity score")
+        .accessibilityValue("\(total) out of 100. \(band.label). Chapter target: \(passMark) out of 100. \(isPracticeEstimate ? "Local feedback for practice and revision." : "")")
     }
 
     private var scoreNumber: some View {
@@ -347,5 +404,21 @@ extension OutcomeView {
         case .brilliant: return Theme.magic
         case .luminous: return Theme.moss
         }
+    }
+}
+
+/// Both the result and journal share the exact authored text. A score carries its source with it.
+enum ChallengeShareText {
+    static func make(level: Int, title: String, answer: String, score: Int,
+                     isPracticeEstimate: Bool) -> String {
+        let source = isPracticeEstimate ? "Local practice estimate" : "AI feedback score"
+        return """
+        My Crearo invention
+        Chapter \(level): \(title)
+        \(source): \(score) / 100
+        Saved on my device; not independently verified.
+
+        \(answer)
+        """
     }
 }

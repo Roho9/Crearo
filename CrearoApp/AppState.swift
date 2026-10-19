@@ -30,11 +30,15 @@ struct ChallengeOutcome: Identifiable {
     let streak: Int
     let advanced: Bool              // moved on to the next level
     var isPracticeEstimate: Bool = true
+    var answer: String = ""
+    var feedbackEvidence: [String] = []
+    var region: ChallengeRegion = .prism
 }
 
 @MainActor
 @Observable
 final class AppState {
+    static let maximumChallengeLength = 12_000
     var services: AppServices
     var worldState: WorldState?
     var didBootstrap = false   // false until the saved world has loaded, so we show a splash (not the start page) during launch
@@ -49,12 +53,50 @@ final class AppState {
     var toast: String?
 
     private let engine = GameEngine()
+    @ObservationIgnored private var draftSaveTask: Task<Void, Never>?
 
     init(services: AppServices = .live()) {
         self.services = services
     }
 
     var hasGame: Bool { worldState != nil }
+    var isLocalPractice: Bool { Secrets.anthropicAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    func challengeDraft(forLevel level: Int) -> String {
+        worldState?.challengeDrafts[String(level)] ?? ""
+    }
+
+    /// Save immediately in memory, then coalesce typing into a single disk write. A late editor
+    /// callback from a cleared chapter must not restore that chapter's discarded draft.
+    func saveChallengeDraft(_ text: String, forLevel level: Int) {
+        guard var world = worldState, world.level == level else { return }
+        let key = String(level)
+        guard world.challengeDrafts[key] != text else { return }
+        if text.isEmpty { world.challengeDrafts.removeValue(forKey: key) }
+        else { world.challengeDrafts[key] = text }
+        worldState = world
+        let worldID = world.character.id
+        draftSaveTask?.cancel()
+        draftSaveTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(350)) }
+            catch { return }
+            guard let self, !Task.isCancelled, self.worldState?.character.id == worldID else { return }
+            await self.persist()
+        }
+    }
+
+    func clearChallengeDraft(forLevel level: Int) {
+        guard var world = worldState else { return }
+        world.challengeDrafts.removeValue(forKey: String(level))
+        worldState = world
+        Task { await persist() }
+    }
+
+    /// Backgrounding flushes the latest text without waiting for the typing debounce.
+    func flushChallengeDrafts() async {
+        draftSaveTask?.cancel()
+        await persist()
+    }
 
     // MARK: Lifecycle
 
@@ -88,6 +130,7 @@ final class AppState {
 
     /// Wipe the saved world and return to the opening sequence (the "New Game" path).
     func resetGame() async {
+        draftSaveTask?.cancel()
         // Invalidate pending judgments before awaiting storage, so they cannot restore this world.
         worldState = nil
         latestProphecy = nil
@@ -107,7 +150,11 @@ final class AppState {
     }
 
     func startNewGame(characterName: String, companionName: String) async {
-        let ws = WorldState.newGame(characterName: characterName, companionName: companionName)
+        draftSaveTask?.cancel()
+        let maker = characterName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let friend = companionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ws = WorldState.newGame(characterName: maker.isEmpty ? "Wren" : maker,
+                                   companionName: friend.isEmpty ? "Kindle" : friend)
         worldState = ws
         latestCompanionLine = engine.companionDir.line(for: .firstMaking, companion: ws.companion, lastCreation: nil)
         await persist()
@@ -181,13 +228,12 @@ final class AppState {
 
     // MARK: The level loop (the core game)
 
-    /// The level you face right now. It only advances when you clear the current one, so it holds
-    /// steady all day and moves forward the moment an idea passes the gate.
+    /// The next uncleared chapter. A clear opens the next one immediately.
     var todaysChallenge: DailyChallenge {
         ChallengeProvider.challenge(level: worldState?.level ?? 1)
     }
 
-    /// Whether you have already cleared a level today (one level a day; come back tomorrow).
+    /// Whether today has contributed to the streak; this does not lock further chapters.
     var hasDoneToday: Bool { worldState?.lastChallengeDay == ChallengeProvider.dayKey() }
 
     /// Score the answer against the hard rubric, stage the cut-scene, and advance ONLY if it clears
@@ -195,7 +241,7 @@ final class AppState {
     @discardableResult
     func submitChallenge(_ level: DailyChallenge, answer: String) async -> ChallengeOutcome? {
         let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !isWorking, !trimmed.isEmpty, let initialWorld = worldState,
+        guard !isWorking, !trimmed.isEmpty, trimmed.count <= Self.maximumChallengeLength, let initialWorld = worldState,
               ChallengeProgression.canAttempt(initialWorld, level: level.level,
                                                day: level.id, currentDay: ChallengeProvider.dayKey()) else {
             return nil
@@ -203,10 +249,13 @@ final class AppState {
         isWorking = true
         defer { isWorking = false }
         let companion = initialWorld.companion.name
+        // Retain the exact submitted draft even if the process closes while evaluation is running.
+        saveChallengeDraft(trimmed, forLevel: level.level)
 
         // Claude grades + directs when a key is present; otherwise fall back to the offline engine.
         // Neither evaluation path mutates the save. Only an accepted result earns rewards below.
         let ai = await StoryDirector.direct(level: level, answer: trimmed, companion: companion,
+                                            previousStory: Array(initialWorld.storyLog.suffix(3)),
                                             apiKey: Secrets.anthropicAPIKey)
         guard !Task.isCancelled, var ws = worldState,
               ws.character.id == initialWorld.character.id,
@@ -214,14 +263,15 @@ final class AppState {
                                                currentDay: ChallengeProvider.dayKey()) else { return nil }
 
         let raw: RubricScores
+        let practice: PracticeEvaluation?
         if let ai {
             raw = ai.scores
+            practice = nil
         } else {
-            // The local lexical heuristic is a practice estimate, not a semantic creativity judge.
-            let input = engine.makeScoringInput(text: trimmed, modality: .writing,
-                                               promptID: "challenge.\(level.level).\(level.id)", rarity: nil)
-            let score = engine.scoring.score(input)
-            raw = RubricScores.from(dimensions: score.dimensions, gate: score.gate)
+            // Challenge-specific evidence improves coaching, but remains a local estimate.
+            let estimate = PracticeChallengeEvaluator().evaluate(answer: trimmed, context: level.practiceContext)
+            practice = estimate
+            raw = estimate.raw
         }
         let graded = CreativityRubric.default.evaluate(raw)
         let passed = LevelGate.passes(score: graded.total, level: level.level)
@@ -239,14 +289,20 @@ final class AppState {
             earned = result.earned
             latestProphecy = result.prophecy
             latestCompanionLine = result.companionLine
+            ws.challengeDrafts.removeValue(forKey: String(level.level))
+            ws.challengeHistory.append(ChallengeJournalEntry(
+                level: level.level, contentID: level.contentID, title: level.title,
+                answer: trimmed, score: graded.total, isPracticeEstimate: ai == nil,
+                storyBeat: scene.storyBeat))
+            if ws.challengeHistory.count > 120 {
+                ws.challengeHistory.removeFirst(ws.challengeHistory.count - 120)
+            }
         }
         worldState = ws
         await persist()
         guard !Task.isCancelled, worldState?.character.id == initialWorld.character.id else { return nil }
 
-        let coaching = scene.coaching.isEmpty
-            ? "Try strengthening \(graded.weakestCriterion.title.lowercased()): \(graded.weakestCriterion.blurb)"
-            : scene.coaching
+        let coaching = practice?.coaching ?? (scene.coaching.isEmpty ? level.revisionPrompt : scene.coaching)
         let spec = SceneSpec(item: scene.item, colorName: scene.color,
                              action: SceneAction.from(scene.action), target: scene.target,
                              outcomeCaption: passed ? scene.outcome : "An idea to refine. The challenge is still open.")
@@ -255,7 +311,8 @@ final class AppState {
                                 coaching: coaching,
                                 storyBeat: passed ? scene.storyBeat : "The challenge is still open. Revise this idea and try it again.",
                                 scene: spec,
-                                streak: ws.streak, advanced: advanced, isPracticeEstimate: ai == nil)
+                                streak: ws.streak, advanced: advanced, isPracticeEstimate: ai == nil,
+                                answer: trimmed, feedbackEvidence: practice?.evidence ?? [], region: level.region)
     }
 
     /// The personalized final boss preview, generated from the current profile (GDD §50).

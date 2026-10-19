@@ -17,20 +17,19 @@ public final class InMemoryPersistenceStore: PersistenceStore, @unchecked Sendab
     public init(_ initial: WorldState? = nil) { self.state = initial }
 
     public func loadWorldState() async throws -> WorldState? {
-        lock.lock(); defer { lock.unlock() }
-        return state
+        lock.withLock { state }
     }
 
     public func save(_ state: WorldState) async throws {
-        lock.lock(); defer { lock.unlock() }
-        var s = state
-        s.updatedAt = Date()
-        self.state = s
+        lock.withLock {
+            var s = state
+            s.updatedAt = Date()
+            self.state = s
+        }
     }
 
     public func deleteAll() async throws {
-        lock.lock(); defer { lock.unlock() }
-        state = nil
+        lock.withLock { state = nil }
     }
 }
 

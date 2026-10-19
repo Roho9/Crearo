@@ -80,7 +80,7 @@ struct OnboardingView: View {
                 .buttonStyle(PaperPrimaryButtonStyle())
                 .disabled(!canBegin)
                 .accessibilityHint("Create your world and open the first chapter.")
-                Text("One chapter a day. You can refine your idea and try again.")
+                Text("Play at your own pace. Refine your idea and try again whenever you like.")
                     .font(.footnote)
                     .foregroundStyle(Theme.grey)
                     .multilineTextAlignment(.center)

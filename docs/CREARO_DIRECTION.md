@@ -2,7 +2,9 @@
 
 Prepared September 30, 2026. Repository reviewed at commit [`3d86901`](https://github.com/Roho9/Crearo/tree/3d869014b9a24dd067083256e0c97e85c86a8f5d).
 
-This is the historical starting audit. The later [Paper Theatre implementation](PAPER_THEATRE_DESIGN.md) adds original artwork and fixes the split assessment/reward flow. Its current offline challenge path uses no rarity estimate and can reach 77/100, rather than the 62-point limit described for the audited code below. Late offline progression remains blocked at Level 12's 78-point target, and the lexical judge still does not understand the goal.
+This is the historical starting audit. The September 30 [Paper Theatre implementation](PAPER_THEATRE_DESIGN.md) added original artwork and fixed the split assessment/reward flow. That intermediate offline path reached 77/100 rather than the 62-point limit described for the audited code below, but still blocked Level 12's 78-point target. It has since been replaced as described in the update below.
+
+Update October 19: the [chapter expansion](CHAPTER_EXPANSION.md) implements the twelve proposed neighborhood challenges and replaces that intermediate offline path with a chapter-specific practice evaluator. All 24 authored chapters now have plausible passing examples; chapters open immediately after a clear. The historical issues below describe only the source-pinned starting revision.
 
 ## The game to build toward
 

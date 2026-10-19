@@ -2,6 +2,8 @@
 
 Research reviewed September 30, 2026. This is the current visual and interaction direction: a small, tactile paper world where a player invents solutions, sees a creativity score out of 100, and progresses through challenges. It supersedes older design proposals that hide all scores. The research supports hypotheses to test; it does not establish that this implementation improves retention or trains creativity.
 
+The [October 19 chapter expansion](CHAPTER_EXPANSION.md) adds twelve implemented challenges, three neighborhoods, saved drafts, invention sharing, and progression at the player's pace. The motion research below remains the visual reference; the expansion notes record current validation.
+
 ## What the evidence says
 
 | Evidence | Decision for Crearo | Limit |
@@ -61,7 +63,7 @@ For social comparison, compare the same challenge with the same rubric version a
 
 ### Current scoring boundary
 
-The local fallback uses lexical heuristics and is labeled a practice estimate. It does not judge semantic novelty reliably. The revised challenge flow passes no rarity estimate, so originality uses its lexical word-variety signal. A compiled current-engine example reaches 77/100; the maximum heuristic signals yield the same total. Level 12 requires 78, so late progression still becomes unreachable offline. The 62-point limit from the starting audit applied to the previous cold-start rarity path, not this revised challenge path. Judge calibration and a viable offline progression policy remain separate required work. The six rubric criteria map into the older eight-axis world profile through a compatibility adapter; detail stands in for fluency and depth stands in for flexibility. Those two proxies are not validated measures of idea or category counts. A passing attempt now commits rewards and growth from the same assessment used by the visible score, once per day. Failed attempts remain revisable and do not earn resources or brighten the saved world.
+The local fallback is labeled a practice estimate. The October expansion replaces the old answer-only adapter with chapter-specific English goal/action clues and actionable feedback. The former 62- and 77-point ceilings describe earlier paths; all 24 chapters now have plausible passing examples against unchanged gates. This does not validate novelty, mechanisms, negated/relational constraints, or semantic diversity. The six rubric criteria still map into the older eight-axis world profile through a compatibility adapter; detail stands in for fluency and depth stands in for flexibility. Those proxies are not validated measures of idea or category counts. A passing attempt commits rewards and growth from the displayed assessment once for that chapter; more chapters can be played the same day. Failed attempts remain revisable and do not earn resources or brighten the saved world. See the expansion notes for the full limits and checks.
 
 ## First-session playtest
 

@@ -197,6 +197,8 @@ public struct WorldState: Codable, Equatable, Sendable {
     public var streak: Int                 // consecutive days with a passed level
     public var lastChallengeDay: String?   // "yyyy-MM-dd" of the last day a level was passed
     public var storyLog: [String]          // the unfolding story, one beat per passed level
+    public var challengeDrafts: [String: String] // level number -> unfinished invention
+    public var challengeHistory: [ChallengeJournalEntry] // recent cleared chapters and their actual ideas
     public var updatedAt: Date
 
     public init(character: PlayerCharacter, companion: Companion, profile: CreativeProfile = CreativeProfile(),
@@ -205,6 +207,7 @@ public struct WorldState: Codable, Equatable, Sendable {
                 unlockedRegions: [RegionID] = [.lastlight, .mirrorwood],
                 level: Int = 1, totalPoints: Int = 0, bestScore: Int = 0,
                 streak: Int = 0, lastChallengeDay: String? = nil, storyLog: [String] = [],
+                challengeDrafts: [String: String] = [:], challengeHistory: [ChallengeJournalEntry] = [],
                 updatedAt: Date = Date()) {
         self.character = character
         self.companion = companion
@@ -220,7 +223,39 @@ public struct WorldState: Codable, Equatable, Sendable {
         self.streak = streak
         self.lastChallengeDay = lastChallengeDay
         self.storyLog = storyLog
+        self.challengeDrafts = challengeDrafts
+        self.challengeHistory = challengeHistory
         self.updatedAt = updatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case character, companion, profile, wallet, creations, home, badges, unlockedRegions
+        case level, totalPoints, bestScore, streak, lastChallengeDay, storyLog, updatedAt
+        case challengeDrafts, challengeHistory
+    }
+
+    /// Missing new fields describe a save from an earlier release, not a broken world. Keep all
+    /// existing state and begin with an empty draft/archive; older journal beats remain intact.
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            character: try values.decode(PlayerCharacter.self, forKey: .character),
+            companion: try values.decode(Companion.self, forKey: .companion),
+            profile: try values.decode(CreativeProfile.self, forKey: .profile),
+            wallet: try values.decode(ResourceWallet.self, forKey: .wallet),
+            creations: try values.decode([Creation].self, forKey: .creations),
+            home: try values.decode(HomeBase.self, forKey: .home),
+            badges: try values.decode([Badge].self, forKey: .badges),
+            unlockedRegions: try values.decode([RegionID].self, forKey: .unlockedRegions),
+            level: try values.decode(Int.self, forKey: .level),
+            totalPoints: try values.decode(Int.self, forKey: .totalPoints),
+            bestScore: try values.decode(Int.self, forKey: .bestScore),
+            streak: try values.decode(Int.self, forKey: .streak),
+            lastChallengeDay: try values.decodeIfPresent(String.self, forKey: .lastChallengeDay),
+            storyLog: try values.decode([String].self, forKey: .storyLog),
+            challengeDrafts: try values.decodeIfPresent([String: String].self, forKey: .challengeDrafts) ?? [:],
+            challengeHistory: try values.decodeIfPresent([ChallengeJournalEntry].self, forKey: .challengeHistory) ?? [],
+            updatedAt: try values.decode(Date.self, forKey: .updatedAt))
     }
 
     /// Bootstrap a fresh game after the opening sequence (GDD §10).

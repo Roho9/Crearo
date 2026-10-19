@@ -1,4 +1,5 @@
 import SwiftUI
+import CrearoCore
 
 // A finite paper-theatre vignette stages the chosen action and the actual obstacle. Inventions
 // map to bounded silhouettes; the caption supplies the detail that a hand-authored stage cannot.
@@ -18,6 +19,7 @@ struct CutSceneView: View {
     let action: SceneAction
     let target: String
     let outcome: String
+    var region: ChallengeRegion = .prism
     var onContinue: () -> Void = {}
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -48,7 +50,7 @@ struct CutSceneView: View {
             ZStack {
                 Canvas { context, size in
                     PaperTheatreArt.landscape(PaperTheatreArt.stageContext(context, size: size),
-                                              target: sceneTarget)
+                                              target: sceneTarget, region: region)
                 }
                 TimelineView(.animation(minimumInterval: 1.0 / 60,
                                         paused: completed || reduceMotion || scenePhase != .active)) { timeline in
@@ -58,7 +60,7 @@ struct CutSceneView: View {
                     }
                 }
                 Canvas { context, size in
-                    PaperTheatreArt.foreground(PaperTheatreArt.stageContext(context, size: size))
+                    PaperTheatreArt.foreground(PaperTheatreArt.stageContext(context, size: size), region: region)
                 }
                 PaperGrainView(opacity: 0.065)
             }
